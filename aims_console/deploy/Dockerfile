@@ -13,13 +13,13 @@
 # deploy/docker-compose.yml does the same with Caddy in front for HTTPS; see deploy/DEPLOY.md.
 FROM python:3.12-slim
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
+# gcc is only for psutil (pinned below 6 by pySPM, no arm64 wheel) and is removed again
 WORKDIR /console
 COPY requirements.txt /console/requirements.txt
-RUN pip install --no-cache-dir -r /console/requirements.txt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 ca-certificates gcc libc6-dev \
+ && pip install --no-cache-dir -r /console/requirements.txt \
+ && apt-get purge -y gcc libc6-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY backend /console/backend
 COPY sim /console/sim

@@ -7,13 +7,13 @@
 # Built by .github/workflows/image.yml on every push to main; or locally: docker build -t aims-console .
 FROM python:3.12-slim
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libgomp1 ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
+# gcc is only for psutil (pinned below 6 by pySPM, no arm64 wheel) and is removed again
 WORKDIR /console
 COPY aims_console/requirements.txt /console/requirements.txt
-RUN pip install --no-cache-dir -r /console/requirements.txt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 ca-certificates gcc libc6-dev \
+ && pip install --no-cache-dir -r /console/requirements.txt \
+ && apt-get purge -y gcc libc6-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY aims_console/backend /console/backend
 COPY aims_console/sim /console/sim
