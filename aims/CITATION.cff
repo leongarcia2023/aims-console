@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software in academic work, please cite it as below."
+title: "AIMS — AI system for Inference and Measurement in Science"
+abstract: >-
+  AIMS (AI system for Inference and Measurement in Science) is an
+  uncertainty-aware, closed-loop AI experimentalist for cryogenic microwave
+  impedance microscopy (MIM). It combines a 37-tool Model Context Protocol (MCP)
+  server — Nanonis/Attocube hardware control, scan-image acquisition and
+  processing, particle-filter stage centering, and gate-sweep data analysis —
+  with agent loop prompts (navigation, measurement, discovery) and a discovery
+  skill that performs Bayesian mechanism inference, converting experimental
+  uncertainty into the next measurement or calculation.
+type: software
+authors:
+  - family-names: Suh
+    given-names: Philip David
+    affiliation: "Stanford University, Department of Physics"
+  - family-names: Qiu
+    given-names: Siyuan
+    affiliation: "Stanford University, Department of Physics"
+    email: sq2234@stanford.edu
+license: MIT
+keywords:
+  - microwave impedance microscopy
+  - scanning probe microscopy
+  - moiré materials
+  - model context protocol
+  - laboratory automation
+  - autonomous experimentation
+  - AI agent
+  - Bayesian inference
+# repository-code: "https://github.com/<your-username>/mim-mcp-server"   # update on publish
+version: "1.0.0"

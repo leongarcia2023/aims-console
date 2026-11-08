@@ -1,0 +1,65 @@
+# AIMS console, public mode, behind Caddy (automatic HTTPS). See DEPLOY.md.
+#
+#   cp deploy/.env.example deploy/.env   # then edit: the console's host name, the two data paths
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+# The page on leonmgarcia.com/AIMS is served over HTTPS, so the console must be too; browsers
+# refuse a plain-http API from an https page. Caddy gets the certificate from Let's Encrypt on
+# the first request, which needs the host name's DNS record to point at this machine and ports
+# 80 and 443 open.
+
+services:
+  console:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: aims-console
+    restart: unless-stopped
+    command:
+      - --origins
+      - ${AIMS_ORIGINS:-https://leonmgarcia.com}
+      - --max-concurrent
+      - ${AIMS_MAX_CONCURRENT:-4}
+      - --max-turns-cap
+      - ${AIMS_MAX_TURNS_CAP:-80}
+      - --wall-limit-min
+      - ${AIMS_WALL_LIMIT_MIN:-45}
+    environment:
+      # the page built with the same --token is the only client that can start runs here
+      AIMS_ACCESS_TOKEN: ${AIMS_ACCESS_TOKEN:?shared secret; build the static page with --token set to the same value}
+    volumes:
+      - ${AIMS_REPO:?path to the AIMS repository}:/aims:ro
+      - ${AIMS_EXAMPLES:?path to the team's examples (VbgScans, GridSpectra, SampleLocatingImages)}:/examples:ro
+      - runs:/runs
+    expose:
+      - "8080"
+    # a navigation run holds one simulator plus the agent subprocess; the particle filter is the
+    # heavy part (one to two minutes of one core per estimate). Size the limits to --max-concurrent.
+    deploy:
+      resources:
+        limits:
+          cpus: "${AIMS_CPUS:-4}"
+          memory: ${AIMS_MEMORY:-8g}
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AIMS_HOST: ${AIMS_HOST:?public host name of the console, e.g. aims.leonmgarcia.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - console
+
+volumes:
+  runs:
+  caddy_data:
+  caddy_config:

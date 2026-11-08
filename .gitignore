@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+aims_console/runs_local/
+aims_console/runs_console/
+aims_console/test/mcpServer_copy/
+.DS_Store

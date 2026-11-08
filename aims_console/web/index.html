@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIMS console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wide">
+    <span class="home">Shen group, Stanford</span>
+    <span class="tag mode" id="mode">…</span>
+  </div>
+</header>
+
+<main class="wide">
+  <h1>AIMS console</h1>
+  <p class="sub">Runs the navigation, measurement and discovery loops of AIMS and keeps the record of every run.</p>
+  <p class="byline" id="byline">connecting</p>
+  <p class="note" id="staticnote" hidden></p>
+  <div class="ctl" id="servicerow" hidden><span class="ctl-label">Console service</span><input id="service" type="text" spellcheck="false" placeholder="https://aims-console.example.org"><button id="serviceset" class="btn" type="button">Connect</button><span class="note" id="servicenote"></span></div>
+  <p class="note" id="publicnote" hidden></p>
+  <div class="callout" id="runlocal" hidden>
+    <h3>Run it yourself</h3>
+    <p>The console runs on your own machine against a simulated instrument, on your own API key; the key never leaves your computer. One of:</p>
+    <pre class="cmd" id="cmd_docker"></pre>
+    <pre class="cmd" id="cmd_script"></pre>
+    <p class="note">Then open <code>http://localhost:8080</code>, which serves this same page connected to the local service, or press Connect above with <code>http://127.0.0.1:8080</code> to drive it from here. Source, manual and the discovery-loop rerun kit: <a id="runlocal_repo" href="#"></a>.</p>
+  </div>
+
+  <section id="loop">
+    <h2><span class="num">01</span> Loop</h2>
+    <p class="note">Navigation and measurement run the instrument. Discovery runs on the packet. Between loops the operator writes the hand-off. Pick a loop to load its prompt from the repository.</p>
+    <div class="chain" id="loops"></div>
+  </section>
+
+  <div class="grid">
+    <div class="col settings">
+      <section id="settings">
+        <h2><span class="num">02</span> Settings</h2>
+        <div class="ctl"><span class="ctl-label">Model</span><select id="modelsel"></select></div>
+        <div class="ctl" id="modelfree" hidden><span class="ctl-label">Model id</span><input id="model" type="text" spellcheck="false" placeholder="any model id the provider accepts"></div>
+        <p class="note" id="modelnote"></p>
+        <div id="keys" hidden>
+          <div class="ctl"><span class="ctl-label">Anthropic key</span><input id="key_anthropic" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..."></div>
+          <div class="ctl"><span class="ctl-label">OpenAI key</span><input id="key_openai" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..."></div>
+          <p class="note">The key for the chosen model's provider; the field follows the model. It goes to the console service with the run request, stays in that run's process for its duration, and is never written to the service's logs or disk. This browser keeps it in session storage until the tab closes. The service has no key of its own.</p>
+        </div>
+        <div class="ctl"><span class="ctl-label">Turn cap</span><input id="maxturns" type="number" value="200" min="1"><span class="note" id="turnnote"></span></div>
+        <label class="chk"><input id="approve" type="checkbox"> Hold instrument actions for approval</label>
+        <p class="note">Stage moves, approach, scans, gate ramps and sweeps wait for the operator; analysis tools run on their own.</p>
+        <label class="chk" id="skillsrow"><input id="useskills" type="checkbox" checked> Recovery steps as skills</label>
+        <p class="note" id="skillsnote">Steps 3 and 7 of the navigation prompt (controller-status recovery, uncertainty-triggered GP recovery) are delegated to two versioned skills the agent invokes; unticked, the prompt spells them out as before.</p>
+
+        <h3>Hand-off note</h3>
+        <p class="note">Prepended to the prompt. Carry the previous loop's final message here, edit it, then start.</p>
+        <textarea id="handoff" rows="3" placeholder="None yet."></textarea>
+
+        <h3>Prompt <small id="promptsrc"></small></h3>
+        <textarea id="prompt" class="prompt" rows="18" spellcheck="false"></textarea>
+        <div class="row">
+          <button id="start" class="btn primary">Start run</button>
+          <button id="stop" class="btn" disabled>Stop</button>
+        </div>
+      </section>
+
+      <section id="runs-section">
+        <h2><span class="num">05</span> Runs</h2>
+        <div class="tablebox">
+          <table>
+            <thead><tr><th>Loop</th><th>Run</th><th>State</th></tr></thead>
+            <tbody id="runs"><tr><td class="empty" colspan="3">none yet</td></tr></tbody>
+          </table>
+        </div>
+        <p class="count" id="runcount"></p>
+      </section>
+
+      <section id="tools-section">
+        <h2><span class="num">06</span> Tools on the server</h2>
+        <p class="tools" id="tools">loading…</p>
+      </section>
+    </div>
+
+    <div class="col record">
+      <section id="record">
+        <h2><span class="num">03</span> Run record <span class="tag" id="runstate" hidden></span><small class="muted" id="rundetail"></small></h2>
+        <p class="readout"><span class="mono" id="runid">no run selected</span><a id="download" href="#" download hidden>events.jsonl</a></p>
+        <div id="approval" class="callout warn" hidden>
+          <h3>Approval needed</h3>
+          <p><code id="apname"></code></p>
+          <div class="args" id="apinput"></div>
+          <div class="row">
+            <input id="apnote" class="grow" type="text" placeholder="Note to the agent (optional)">
+            <button id="apallow" class="btn primary">Allow</button>
+            <button id="apdeny" class="btn">Deny</button>
+          </div>
+        </div>
+        <div id="steps" class="ledger"><p class="empty">No run selected.</p></div>
+        <div class="composer">
+          <input id="msg" type="text" placeholder="Message to the agent">
+          <button id="send" class="btn">Send</button>
+        </div>
+      </section>
+    </div>
+
+    <aside class="col state">
+      <div class="sticky">
+        <section id="instrument">
+          <h2><span class="num">04</span> Instrument</h2>
+          <div class="ctl"><span class="ctl-label">Stage map</span>
+            <div class="seg" id="stageview">
+              <button type="button" data-view="template" aria-pressed="true">Template</button>
+              <button type="button" data-view="close" aria-pressed="false">Close-up</button>
+            </div>
+          </div>
+          <figure>
+            <svg id="stagemap" viewBox="0 0 330 300" role="img" aria-label="Position estimates on the navigation template"></svg>
+            <figcaption id="stagecap">Position estimates on the navigation template. Ellipse: one standard deviation. Dashed square: the scan frame.</figcaption>
+          </figure>
+          <div class="tiles">
+            <div class="tile"><div class="k">Position</div><div class="v" id="pos">–</div><div class="s" id="unc"></div></div>
+            <div class="tile"><div class="k">Distance</div><div class="v" id="dist">–</div><div class="s" id="conf"></div></div>
+            <div class="tile"><div class="k">Last move</div><div class="v" id="move">–</div><div class="s" id="moves"></div></div>
+            <div class="tile"><div class="k">Bottom gate</div><div class="v" id="vbg">–</div><div class="s" id="vbgs"></div></div>
+            <div class="tile"><div class="k">Scan frame</div><div class="v" id="frame">–</div><div class="s" id="frames"></div></div>
+            <div class="tile"><div class="k">Tool calls</div><div class="v" id="ncalls">0</div><div class="s" id="cost"></div></div>
+          </div>
+          <h3>Latest image</h3>
+          <div id="latestimg" class="imgbox"><span class="empty">none yet</span></div>
+          <p class="note" id="imgcap"></p>
+          <h3>Final message</h3>
+          <div id="final" class="final muted">–</div>
+          <button id="carry" class="btn" hidden>Use as the hand-off note</button>
+        </section>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<footer>
+  <div class="wide">Runs the AIMS repository unmodified. The agent reaches the instrument only through the MCP server. Each run writes <code>events.jsonl</code>, <code>meta.json</code> and <code>result.json</code>.</div>
+</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

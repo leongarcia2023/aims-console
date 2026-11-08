@@ -1,0 +1,17 @@
+# Reverse proxy for the AIMS console with automatic HTTPS. AIMS_HOST comes from the environment
+# (docker-compose.yml). WebSockets pass through without extra configuration, and Caddy's proxy
+# has no response timeout by default, which the particle filter's two-minute tool calls need.
+{$AIMS_HOST} {
+	encode zstd gzip
+	reverse_proxy console:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}

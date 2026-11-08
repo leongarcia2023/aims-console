@@ -1,0 +1,28 @@
+# AIMS console: Python dependencies for the service, the drivers and the per-run simulators.
+# The team's own server requirements are repeated here (minus the hardware libraries), so one
+# install covers a console that starts simulators itself. Tested with Python 3.12.
+#
+#     python3.12 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+
+# --- the console service ---------------------------------------------------------------------
+fastapi>=0.115
+uvicorn>=0.30
+websockets>=12
+httpx>=0.27
+pydantic>=2.7,<3
+claude-agent-sdk>=0.2            # bundles the Claude Code CLI; the Claude driver needs nothing else
+mcp>=1.0,<2                      # the team's server uses mcp.server.fastmcp / mcp.server.sse (1.x API)
+Pillow>=10
+
+# --- the team's MCP server, run by the simulator (mcpServer/requirements.txt without hardware) --
+starlette>=0.27
+numpy>=1.24
+scipy>=1.11
+pandas>=2.0
+matplotlib>=3.7
+opencv-python-headless>=4.8      # cv2 without the X11 libraries; the server never opens a window
+scikit-image>=0.21
+scikit-learn>=1.3
+pySPM>=0.6
+PyYAML>=6
+pyvisa>=1.13                     # imported at module level by hardware_connections.py, which the simulator rebinds
