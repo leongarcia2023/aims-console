@@ -36,5 +36,6 @@ KEEP=(HOME="$HOME" PATH="$HERE/.venv/bin:$PATH" LANG="${LANG:-C.UTF-8}" TERM="${
 for v in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy SSL_CERT_FILE REQUESTS_CA_BUNDLE AIMS_OPENAI_URL AIMS_SIM; do
   eval "val=\${$v:-}"; [ -n "$val" ] && KEEP+=("$v=$val")
 done
+cd "$HERE"   # backend.app is imported relative to the working directory; install.sh runs this from elsewhere
 exec env -i "${KEEP[@]}" "$HERE/.venv/bin/python" -m backend.app --repo "$REPO" --examples "$EXAMPLES" --runs "$HERE/runs_local" \
      --sim-per-run --public --host 127.0.0.1 --port "$PORT"
