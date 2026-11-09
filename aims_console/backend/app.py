@@ -57,10 +57,10 @@ LOOP_FILES = {"navigation": "Navigation loop prompt.md", "measurement": "Measure
 
 # the models of the study, plus current ones for cheap tries; the page offers these and a free field
 MODELS = [
-    {"id": "claude-opus-4-5", "provider": "anthropic", "label": "Claude Opus 4.5", "study": "navigation and measurement loops in the paper"},
-    {"id": "claude-opus-4-8", "provider": "anthropic", "label": "Claude Opus 4.8", "study": "discovery loop in the paper; the 20 contamination reruns"},
+    {"id": "claude-opus-4-5", "provider": "anthropic", "label": "Claude Opus 4.5", "study": "navigation and measurement loops in the paper; second-model check of the discovery reruns"},
+    {"id": "claude-opus-4-8", "provider": "anthropic", "label": "Claude Opus 4.8", "study": "discovery loop in the paper; the contamination reruns"},
     {"id": "gpt-5.5", "provider": "openai", "label": "GPT-5.5", "study": "benchmark in the paper"},
-    {"id": "claude-opus-5-5", "provider": "anthropic", "label": "Claude Opus 5.5", "study": "second-model check (reruns in progress)"},
+    {"id": "claude-opus-5-5", "provider": "anthropic", "label": "Claude Opus 5.5", "study": "second-model check of the discovery reruns"},
     {"id": "claude-sonnet-5-5", "provider": "anthropic", "label": "Claude Sonnet 5.5", "study": "not in the study; cheaper"},
     {"id": "claude-haiku-5-5", "provider": "anthropic", "label": "Claude Haiku 5.5", "study": "not in the study; cheapest, used for the console's own tests"},
 ]

@@ -34,5 +34,8 @@ Then open <http://localhost:8080>, pick a model, paste your key, start a navigat
 * `Dockerfile`, `.github/workflows/image.yml`: the reviewer image and the build that publishes it.
 * `install.sh`: the no-Docker path (clones this repository, creates a virtualenv, starts the console).
 
+* `rerun_kit/`: the scripts behind the blinded discovery-loop reruns (arm builders, the sandboxed
+  runner, campaign driver, audits, token ledger, aggregation), with their own README.
+
 The discovery loop needs file and shell tools and the discovery packet; it is not offered by the
-local console. The rerun kit for it is described in the paper's supplementary material.
+local console. `rerun_kit/` runs it the way the paper's supplementary material describes.
