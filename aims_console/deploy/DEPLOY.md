@@ -1,89 +1,94 @@
-# Hosting the public console (optional)
+# Hosting the console behind leonmgarcia.com/AIMS
 
-Decision (León, 2026-11-08): no hosted service. Reviewers run the console on their own machines
-(`reviewer.sh`, `install.sh`, the Docker image at the repository root), so nobody but the person
-running it pays for anything. What follows is the recipe for a hosted copy, kept in case it is
-ever wanted; nothing in it is in use.
+Decision (León, 2026-11-09): the page at `leonmgarcia.com/AIMS` should run AIMS when a reviewer
+edits the prompt and presses Start, with nothing to install and no key to bring. That needs a
+service somewhere a browser can reach over HTTPS, and a model key the service pays with. This file
+is the recipe; `bootstrap.sh` does the machine part in one command.
+
+Two modes, one switch (`AIMS_HOSTED` in `deploy/.env`, the third argument of `bootstrap.sh`):
+
+* `hosted`: the service holds one Anthropic key and every run uses it, within the caps (turns, wall
+  time, concurrent runs). The page asks for no key. Whoever has the page password can spend on that
+  key, so it should be a key of its own with a monthly spend limit set in the Anthropic Console
+  (Settings, Limits) and revocable without touching anything else. GPT models still need the
+  reviewer's own OpenAI key (the field appears only when a GPT model is chosen).
+* `byok`: the service lends no credential; every run needs a key entered in the page (the 2026-11-07
+  design). Same caps, same isolation.
 
 The reviewer's address is `leonmgarcia.com/AIMS` and nothing else: the page there is static
-(GitHub Pages) and already carries the service's address and access token inside its encrypted
-body, so once the service answers, the page connects on its own. The service itself has to live
-on a machine that is not GitHub Pages, and a browser will only talk to it over HTTPS under a
-name, so it gets one subdomain, `aims.leonmgarcia.com`, which no reviewer ever types or sees:
-the page does not show it, and the gate does not contain it. If even that is unwanted, the API
-can sit under `leonmgarcia.com/AIMS/api` instead, but only with a proxy in front of the whole
-domain (Cloudflare with the DNS moved there, routing that path to the VPS and stripping the
-`/AIMS` prefix) or with the site itself served from the VPS instead of GitHub Pages; both are
-larger changes to the site than one DNS record, and the page supports a path-prefixed service
-if that is ever chosen (`build_static.py --backend https://leonmgarcia.com/AIMS`).
+(GitHub Pages) and carries the service's address and access token inside its encrypted body, so once
+the service answers, the page connects on its own. The service lives on a machine that is not GitHub
+Pages, under one subdomain, `aims.leonmgarcia.com`, which no reviewer types or sees. A National
+Compute workspace cannot be that machine: its ports open only to the owner's own signed-in browser
+(see NC_WORKSPACE.md), and the lab's GPU cluster bills whole GPU nodes.
 
 ## The twenty minutes
 
-1. Create the VPS: Ubuntu 24.04, 4 vCPU, 8 GB, 80 GB disk (Hetzner CPX31 or CX32, DigitalOcean
-   4 vCPU / 8 GB, Linode 8 GB; about 15 to 50 USD a month at 2026 prices, check the provider),
-   with your SSH key. Note its IPv4 address.
+1. Create the VPS: Ubuntu 24.04, 2 vCPU, 4 GB, 40 GB disk is enough for three concurrent runs
+   (Hetzner CX22 or CPX21, DigitalOcean 2 vCPU / 4 GB, Linode 4 GB; roughly 4 to 24 USD a month at
+   2026 prices), with your SSH key. Note its IPv4 address.
 2. At the registrar of leonmgarcia.com, add one record: `A  aims  <that IPv4>` (TTL short).
    Nothing else on the domain changes; GitHub Pages keeps serving the site.
-3. Copy the three inputs to the VPS:
+3. For hosted mode, make the key: in the Anthropic Console create a key for this purpose (its own
+   workspace, a monthly spend limit you are comfortable losing, e.g. 100 USD), then on the VPS:
    ```bash
-   scp aims_console.zip root@<ip>:/srv/
-   scp aims_console/deploy/bootstrap.sh root@<ip>:/srv/
-   rsync -a /path/to/examples/ root@<ip>:/srv/aims-examples/      # VbgScans, GridSpectra, SampleLocatingImages (23 MB)
-   ssh root@<ip> git clone <AIMS repository> /srv/AIMS             # with your own GitHub credentials
+   install -m 600 /dev/null /srv/anthropic.key && nano /srv/anthropic.key     # one line: sk-ant-...
    ```
-4. Run the bootstrap with the host name and the access token the page was built with (the
-   token is in the Claude conversation of 2026-11-07, not in any file here):
+   The key never goes on a command line or into the repository; `bootstrap.sh` reads this file into
+   `deploy/.env` (mode 600) and the container's environment, and the console passes it only to the
+   agent subprocess of each run.
+4. Run the bootstrap with the host name, the access token the page will be built with
+   (`python3 -c 'import secrets; print(secrets.token_urlsafe(24))'`), and the mode:
    ```bash
-   ssh root@<ip> bash /srv/bootstrap.sh aims.leonmgarcia.com <token>
+   curl -fsSL https://raw.githubusercontent.com/leongarcia2023/aims-console/main/aims_console/deploy/bootstrap.sh -o /srv/bootstrap.sh
+   bash /srv/bootstrap.sh aims.leonmgarcia.com <token> hosted
    ```
-   It installs Docker, opens 22/80/443, writes `deploy/.env`, builds the image (about 1 GB of
-   downloads), starts the console behind Caddy, and prints two checks: `401` without the token
-   and `{"sim": true, ... "public": true` with it. Caddy fetches the certificate on the first
-   request, which needs step 2 to have propagated.
-5. Open `leonmgarcia.com/AIMS`, enter the page password: the note under the title should no
-   longer say the service is unreachable, and the model list and key field are live. Do one
-   Haiku run with your own key.
-6. After the review: delete the VPS and remove the DNS record. The page falls back to replaying
-   the recorded runs by itself.
+   It installs Docker, opens 22/80/443, clones the console repository to `/srv/aims-console`,
+   writes `deploy/.env`, builds the image (the reviewer image at the repository root: console,
+   instrument code and the recorded sweeps, about 1 GB of downloads), starts it behind Caddy and
+   prints two checks: `401` without the token and `"public":true,"hosted":true` with it. Caddy
+   fetches the certificate on the first request, which needs step 2 to have propagated.
+5. Rebuild the page with the service's address and the same token, and push it:
+   ```bash
+   python static/build_static.py --repo /path/to/AIMS --runs runs_console --include <run ids> \
+       --out /path/to/leongarcia2023.github.io/AIMS --password <page password> \
+       --backend https://aims.leonmgarcia.com --token <token> \
+       --runlocal-repo https://github.com/leongarcia2023/aims-console --runlocal-image ghcr.io/leongarcia2023/aims-console
+   cd /path/to/leongarcia2023.github.io && git add AIMS && git commit -m "AIMS console page: live service" && git push
+   ```
+6. Open `leonmgarcia.com/AIMS`, enter the page password: the note under the title says runs use the
+   authors' key, the model list is live, the key field is gone. Edit the prompt, press Start run.
+7. After the review: delete the VPS, remove the DNS record, revoke the key. The page falls back to
+   replaying the recorded runs by itself; rebuild it without `--backend` to drop the address.
 
 ## What the service needs (for anyone redoing this elsewhere)
 
-* Linux with Docker (or Python 3.12 and `requirements.txt`). Four cores and 8 GB are
-  comfortable for four concurrent runs; the particle filter is the load, one to two minutes of
-  one core per position estimate.
+* Linux with Docker. Two cores and 4 GB carry three concurrent runs; the particle filter is the
+  load, one to two minutes of one core per position estimate. The compose file caps the container
+  at `AIMS_CPUS` and `AIMS_MEMORY` (defaults 2 and 3g); raise `AIMS_MAX_CONCURRENT` only with them.
 * A host name whose A record points at it and ports 80 and 443 open, so Caddy can get a
-  certificate. The page is served over HTTPS, and browsers refuse a plain-http API from an https
-  page.
-* A clone of the AIMS repository (prompts, template, `mcpServer/`) and the team's `examples`
-  directory (`VbgScans/`, `GridSpectra/`, `SampleLocatingImages/`; the public repository ships
-  only the two markdown examples, the data is in the team's zip).
-* The access token: the service accepts API calls only with it; the static page carries it
-  inside its encrypted body, so the token is known to whoever has the page's password and to
-  nobody else. Without the token the service is a closed door; with it but without an API key it
-  still starts nothing.
+  certificate. The page is served over HTTPS, and browsers refuse a plain-http API from an https page.
+* The access token: the service accepts API calls only with it; the static page carries it inside
+  its encrypted body, so the token is known to whoever has the page's password and to nobody else.
+  Without the token the service is a closed door.
+* Hosted mode: the Anthropic key in `/srv/anthropic.key` (mode 600). Byok mode: nothing more.
 
-Changing the host name or the token means rebuilding and re-pushing the page:
+Changing the host name or the token means rebuilding and re-pushing the page (step 5).
 
-```bash
-python static/build_static.py --repo /path/to/AIMS --runs runs_console \
-    --out /path/to/leongarcia2023.github.io/AIMS --password <page password> \
-    --backend https://aims.leonmgarcia.com --token <token> --include <run ids>
-cd /path/to/leongarcia2023.github.io && git add AIMS && git commit -m "AIMS console page" && git push
-```
-
-## What the public service does and does not do
+## What the service does and does not do
 
 * Every run starts its own simulated MCP server on a loopback port under the run's directory
-  (`<run>/sim/sessions`), seeded differently, and stops it when the run ends. Runs never share
-  an instrument state.
-* A run must bring an API key (Anthropic or OpenAI). The key goes into the run's process
-  environment (Claude driver) or the request headers of the run's own calls (OpenAI driver). It
-  is not written to `meta.json`, `events.jsonl` or the service log; `meta.json` records only
-  `own_key: true`. The server's own credentials are removed from the environment at startup in
-  public mode, so a run without a key gets a 400 and nothing else.
+  (`<run>/sim/sessions`), seeded differently, and stops it when the run ends. Runs never share an
+  instrument state.
+* Hosted mode: a Claude run with no key in the request uses the service's key; a request that does
+  bring a key uses that one instead. Byok mode: a run without a key gets a 400 and nothing else. In
+  both modes a key from the page goes into the run's process environment (Claude driver) or the
+  request headers of the run's own calls (OpenAI driver); it is not written to `meta.json`,
+  `events.jsonl` or the service log, and `meta.json` records only `own_key: true`.
 * Caps: turns (`--max-turns-cap`, 80), wall time (`--wall-limit-min`, 45; the watchdog stops the
-  run and marks it), concurrent runs (`--max-concurrent`, 4; the fifth gets a 429 and a message
-  to try again later).
+  run and marks it), concurrent runs (`--max-concurrent`, 3; the next gets a 429 and a message to
+  try again later). In hosted mode these caps are the spend control per run; the Anthropic Console
+  limit is the spend control overall.
 * A run is visible only to the browser that started it (a random client id in that browser's
   local storage); the runs list and the WebSocket are filtered by it.
 * The discovery loop is not offered: it needs file and shell tools on the server.
@@ -91,21 +96,24 @@ cd /path/to/leongarcia2023.github.io && git add AIMS && git commit -m "AIMS cons
   actual lock.
 * Every run's log and simulator session stays under `/runs` (the `runs` volume). Prune now and
   then: `docker compose exec console find /runs -maxdepth 1 -mtime +30 -type d -exec rm -rf {} +`.
-* The microscope PC is never the host: the public service runs simulators only.
+* The microscope PC is never the host: the hosted service runs simulators only.
 
 ## Updating the service
 
 ```bash
-scp aims_console.zip root@<ip>:/srv/ && ssh root@<ip> bash /srv/bootstrap.sh aims.leonmgarcia.com <token>
+ssh root@<ip> bash /srv/bootstrap.sh aims.leonmgarcia.com <token> hosted
 ```
 
-(the bootstrap re-unpacks, rebuilds and restarts; `deploy/.env` is rewritten from its arguments).
-Logs: `docker compose -f /srv/aims_console/deploy/docker-compose.yml --env-file /srv/aims_console/deploy/.env logs -f`.
+(the bootstrap pulls the repository, rebuilds and restarts; `deploy/.env` is rewritten from its
+arguments and the key file). Logs:
+`docker compose -f /srv/aims-console/aims_console/deploy/docker-compose.yml --env-file /srv/aims-console/aims_console/deploy/.env logs -f`.
 
 ## Alternatives, for the record
 
-A lab machine behind a Cloudflare Tunnel (free, no open ports, but reviewer traffic enters the
-lab network and the machine must stay on), or a cluster with public ingress. Without Docker:
+A lab machine behind a Cloudflare Tunnel (free, no open ports, but reviewer traffic enters the lab
+network and the machine must stay on); a National Compute workspace behind the same kind of tunnel
+(free, but a pod restart ends the tunnel and the URL changes); the lab's k8s cluster with a public
+ingress (bills whole GPU nodes at 3.50 USD per GPU-hour, so no). Without Docker:
 `pip install -r requirements.txt`, then
-`AIMS_ACCESS_TOKEN=<token> ./run_console.sh --repo /srv/AIMS --examples /srv/aims-examples --runs /srv/aims-runs --sim-per-run --public --host 127.0.0.1 --port 8080 --origins https://leonmgarcia.com`
+`AIMS_ACCESS_TOKEN=<token> AIMS_HOSTED=1 ANTHROPIC_API_KEY=... python -m backend.app --repo /srv/aims-console/aims --examples /srv/aims-console/aims/examples --runs /srv/aims-runs --sim-per-run --public --host 127.0.0.1 --port 8080 --origins https://leonmgarcia.com`
 behind any HTTPS reverse proxy (Caddy: `aims.leonmgarcia.com { reverse_proxy 127.0.0.1:8080 }`).

@@ -80,19 +80,21 @@ async function init() {
   mode.className = "tag mode " + (CFG.sim ? "sim" : "hw");
   const by = $("byline");
   by.textContent = "";
-  const agent = CFG.byok ? "the model and key chosen below" : CFG.model;
+  const agent = CFG.byok ? "the model and key chosen below" : (CFG.hosted ? "the model chosen below, on the authors' key" : CFG.model);
   for (const [label, value] of [["MCP server", CFG.mcp_url || (CFG.sim_per_run ? "one simulator per run" : "none")], ["agent", agent], ["logs in", CFG.public ? "this browser's runs only" : (CFG.runs_dir || "runs_console").split("/").pop() + "/"]]) {
     const sp = el("span"); sp.append(label + " ", code(value)); by.appendChild(sp);
   }
   buildModels();
-  if (CFG.byok || BACKEND) {
+  if (CFG.byok || (BACKEND && !CFG.hosted)) {
     $("keys").hidden = false;
     $("key_anthropic").value = KEYS.anthropic; $("key_openai").value = KEYS.openai;
     for (const p of ["anthropic", "openai"]) $("key_" + p).oninput = (e) => { KEYS[p] = e.target.value.trim(); try { sessionStorage.setItem("aims-key-" + p, KEYS[p]); } catch (x) {} };
   }
   if (CFG.public) {
     const n = $("publicnote");
-    n.textContent = `Public console: every run gets its own simulated instrument, runs on the API key entered below, is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. The discovery loop (file and shell tools) runs with the downloadable console.`;
+    n.textContent = CFG.hosted
+      ? `Every run gets its own simulated instrument, runs on the authors' API key (no key needed from you), is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. Edit the prompt or the hand-off note and press Start run. The discovery loop (file and shell tools) runs with the downloadable console.`
+      : `Public console: every run gets its own simulated instrument, runs on the API key entered below, is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. The discovery loop (file and shell tools) runs with the downloadable console.`;
     n.hidden = false;
     $("maxturns").value = Math.min(parseInt($("maxturns").value, 10) || 200, CFG.max_turns_cap);
     $("turnnote").textContent = `at most ${CFG.max_turns_cap} here`;
@@ -165,6 +167,8 @@ function modelChanged() {
   // only the chosen model's provider needs a key; the other field stays filled but out of the way
   const provider = providerOf(chosenModel());
   for (const p of ["anthropic", "openai"]) $("key_" + p).closest(".ctl").hidden = p !== provider;
+  // hosted service: the authors' Anthropic key covers Claude models, so the key block appears only for a GPT model
+  if (CFG && CFG.hosted) $("keys").hidden = provider !== "openai";
 }
 
 function chosenModel() {
@@ -239,7 +243,8 @@ $("start").onclick = async () => {
   if (!model) { note("Choose a model first."); return; }
   const provider = providerOf(model);
   const key = KEYS[provider] || "";
-  if ((CFG.byok || BACKEND) && !key) { note(`Enter ${provider === "openai" ? "an OpenAI" : "an Anthropic"} API key for ${model}.`); $("key_" + provider).focus(); return; }
+  if ((CFG.byok || (BACKEND && !CFG.hosted)) && !key) { note(`Enter ${provider === "openai" ? "an OpenAI" : "an Anthropic"} API key for ${model}.`); $("key_" + provider).focus(); return; }
+  if (CFG.hosted && provider === "openai" && !key) { note("GPT models need your own OpenAI key here; the hosted key is an Anthropic key."); return; }
   const body = {loop: currentLoop, prompt: $("prompt").value, model, provider, api_key: key || null,
                 max_turns: parseInt($("maxturns").value || "200", 10), approve: $("approve").checked,
                 handoff: $("handoff").value.trim() || null, client: CLIENT, use_skills: !!(CFG.skills && $("useskills").checked)};

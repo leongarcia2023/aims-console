@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -337,8 +338,9 @@ async def start_run(req: StartRun):
         if req.loop == "discovery":
             raise HTTPException(403, "the public console runs the navigation and measurement loops on the simulator; "
                                      "the discovery loop (file and shell tools) runs with the downloadable console")
-        if not api_key:
-            raise HTTPException(400, "this console runs on your own API key: enter an Anthropic or OpenAI key")
+        if not api_key and not (CFG.get("hosted") and provider == "anthropic"):
+            raise HTTPException(400, "this console runs on your own API key: enter an Anthropic or OpenAI key"
+                                if not CFG.get("hosted") else "GPT models need your own OpenAI key here; the hosted key is an Anthropic key")
         if live_runs() >= int(CFG["max_concurrent"]):
             raise HTTPException(429, f"{CFG['max_concurrent']} runs are already in progress; try again in a few minutes")
         req.max_turns = min(req.max_turns, int(CFG["max_turns_cap"]))
@@ -518,6 +520,9 @@ def main():
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--public", action="store_true", help="bring-your-own-key mode: per-browser runs, caps, no discovery loop")
+    ap.add_argument("--hosted", action="store_true", default=os.environ.get("AIMS_HOSTED") == "1",
+                    help="with --public: runs may use the service's own Anthropic key (the authors pay, within the caps); "
+                         "the page then asks for no key. Use behind an access token only. Also AIMS_HOSTED=1.")
     ap.add_argument("--origins", default="https://leonmgarcia.com,http://127.0.0.1:8080,http://localhost:8080",
                     help="comma-separated browser origins allowed to call the API (the static page's host)")
     ap.add_argument("--max-concurrent", type=int, default=4)
@@ -544,17 +549,22 @@ def main():
                discovery_system_prompt=discovery_system_prompt(repo), loops=list(LOOP_FILES), prompt_files=LOOP_FILES,
                operating_rules=OPERATING_RULES, template=template_info(repo), skills=skills,
                skill_names=sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else [],
-               public=bool(a.public), max_concurrent=a.max_concurrent, max_turns_cap=a.max_turns_cap,
-               wall_limit_min=a.wall_limit_min, byok=bool(a.public),
+               public=bool(a.public), hosted=bool(a.public and a.hosted), max_concurrent=a.max_concurrent,
+               max_turns_cap=a.max_turns_cap, wall_limit_min=a.wall_limit_min, byok=bool(a.public and not a.hosted),
                # the agent subprocess gets a scrubbed environment: credentials and proxy only
                env={k: v for k, v in os.environ.items() if k in (
                    "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
                    "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
                    "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "PATH", "HOME",
                    "TERM", "LANG")})
-    if a.public:   # a public server never lends its own credentials to a run
+    if a.public and not a.hosted:   # a public server never lends its own credentials to a run
         for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
             CFG["env"].pop(k, None)
+    if a.public and a.hosted:
+        if not any(CFG["env"].get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")):
+            sys.exit("--hosted needs the service's Anthropic credential in the environment (ANTHROPIC_API_KEY)")
+        if not a.access_token:
+            sys.exit("--hosted lends the service's key to every caller: it needs --access-token / AIMS_ACCESS_TOKEN")
     Path(str(CFG["runs_dir"])).mkdir(parents=True, exist_ok=True)
     load_archive(Path(str(CFG["runs_dir"])))
     origins = [o.strip() for o in a.origins.split(",") if o.strip()]
@@ -567,7 +577,7 @@ def main():
     import uvicorn
     print(f"AIMS console on http://{a.host}:{a.port}  mode={'SIMULATION' if CFG['sim'] else 'HARDWARE'}  "
           f"mcp={mcp_url or 'per run'}  model={a.model}  public={a.public}  skills={skills}  "
-          f"access_token={'set' if a.access_token else 'none'}")
+          f"hosted={bool(a.public and a.hosted)}  access_token={'set' if a.access_token else 'none'}")
     uvicorn.run(app, host=a.host, port=a.port, log_level="info")
 
 

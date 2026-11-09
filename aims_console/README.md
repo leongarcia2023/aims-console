@@ -88,6 +88,11 @@ exists so a reviewer can do their own runs rather than watch recorded ones:
   to the browser that started them (a client id). Caps: `--max-turns-cap` 80,
   `--wall-limit-min` 45, `--max-concurrent` 4. The discovery loop is not offered, since it
   needs file and shell tools on the server.
+* `--hosted` (or `AIMS_HOSTED=1`, with `--public`): the service keeps its own Anthropic key and a
+  Claude run that brings no key uses it, within the same caps; the page then asks for no key (the
+  field appears only for a GPT model, which still needs the caller's OpenAI key). Refused without
+  an access token, since whoever reaches the service spends on that key. This is the mode behind
+  `leonmgarcia.com/AIMS` since 2026-11-09 (`deploy/DEPLOY.md`).
 * `--access-token` (or `AIMS_ACCESS_TOKEN`): a shared secret required on every API call and
   WebSocket (`X-AIMS-Token` header, `?token=` for the socket). The static page is built with
   the same value (`build_static.py --token`) inside its encrypted body, so only people with the

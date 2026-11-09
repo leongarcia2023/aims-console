@@ -1,35 +1,43 @@
-# AIMS console, public mode, behind Caddy (automatic HTTPS). See DEPLOY.md.
+# AIMS console as a hosted service behind Caddy (automatic HTTPS). See DEPLOY.md.
 #
-#   cp deploy/.env.example deploy/.env   # then edit: the console's host name, the two data paths
+#   bootstrap.sh writes deploy/.env; by hand:
+#   cp deploy/.env.example deploy/.env   # host name, access token, hosted switch
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 #
-# The page on leonmgarcia.com/AIMS is served over HTTPS, so the console must be too; browsers
-# refuse a plain-http API from an https page. Caddy gets the certificate from Let's Encrypt on
-# the first request, which needs the host name's DNS record to point at this machine and ports
-# 80 and 443 open.
+# The image is the reviewer image at the repository root (console + AIMS instrument code + the
+# recorded example sweeps), so nothing has to be mounted. Two modes, chosen by AIMS_HOSTED:
+#   AIMS_HOSTED=0  bring-your-own-key: the service lends no credential; every run needs a key in the page
+#   AIMS_HOSTED=1  hosted: runs use the service's Anthropic key (ANTHROPIC_API_KEY in the environment,
+#                  read from the file named by AIMS_KEY_FILE), within the caps; the page asks for no key.
+#                  Only sensible behind the access token: whoever has the page password can spend on
+#                  that key, so give it a spend limit in the Anthropic Console.
+# The page on leonmgarcia.com/AIMS is served over HTTPS, so the console must be too; Caddy gets the
+# certificate from Let's Encrypt on the first request, which needs the host name's A record to point
+# at this machine and ports 80 and 443 open.
 
 services:
   console:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+      context: ../..
+      dockerfile: Dockerfile
     image: aims-console
     restart: unless-stopped
     command:
       - --origins
       - ${AIMS_ORIGINS:-https://leonmgarcia.com}
       - --max-concurrent
-      - ${AIMS_MAX_CONCURRENT:-4}
+      - ${AIMS_MAX_CONCURRENT:-3}
       - --max-turns-cap
       - ${AIMS_MAX_TURNS_CAP:-80}
       - --wall-limit-min
       - ${AIMS_WALL_LIMIT_MIN:-45}
     environment:
+      AIMS_HOSTED: ${AIMS_HOSTED:-0}
       # the page built with the same --token is the only client that can start runs here
       AIMS_ACCESS_TOKEN: ${AIMS_ACCESS_TOKEN:?shared secret; build the static page with --token set to the same value}
+      # hosted mode only; empty otherwise. bootstrap.sh fills it from AIMS_KEY_FILE, never from the command line.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      - ${AIMS_REPO:?path to the AIMS repository}:/aims:ro
-      - ${AIMS_EXAMPLES:?path to the team's examples (VbgScans, GridSpectra, SampleLocatingImages)}:/examples:ro
       - runs:/runs
     expose:
       - "8080"
@@ -38,8 +46,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${AIMS_CPUS:-4}"
-          memory: ${AIMS_MEMORY:-8g}
+          cpus: "${AIMS_CPUS:-2}"
+          memory: ${AIMS_MEMORY:-3g}
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
