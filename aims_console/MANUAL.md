@@ -32,7 +32,7 @@ about fifteen times speed, and Start, Stop, Send and Allow/Deny do nothing.
 
 Skip this section if you only want to run the console on your own machine; section 3 is two commands.
 
-You need Python 3.12, a clone of the AIMS repository, and either the `claude` command line
+You need Python 3.11 or 3.12, a clone of the AIMS repository, and either the `claude` command line
 signed in (`npm install -g @anthropic-ai/claude-code`, then `claude login`) or an
 `ANTHROPIC_API_KEY` in the environment. Then:
 
@@ -69,7 +69,7 @@ The console runs on your computer against a simulated instrument, on your own AP
 key goes into the page and stays on your machine; the authors run no service and see nothing.
 
 1. Start it. With Docker: `docker run --rm -p 8080:8080 ghcr.io/leongarcia2023/aims-console`.
-   Without Docker (git and Python 3.12):
+   Without Docker (git and Python 3.11 or 3.12):
    `curl -fsSL https://raw.githubusercontent.com/leongarcia2023/aims-console/main/install.sh | bash`,
    which clones the repository into `./aims-console-local`, creates a virtualenv and starts the
    console (a few minutes the first time).

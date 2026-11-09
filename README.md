@@ -16,7 +16,7 @@ With Docker:
 docker run --rm -p 8080:8080 ghcr.io/leongarcia2023/aims-console
 ```
 
-Without Docker (git and Python 3.12):
+Without Docker (git and Python 3.11 or 3.12):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leongarcia2023/aims-console/main/install.sh | bash
@@ -33,7 +33,9 @@ Then open <http://localhost:8080>, pick a model, paste your key, start a navigat
   spectra the simulator replays (`examples/`). MIT licence, Philip David Suh and Siyuan Qiu.
 * `Dockerfile`, `.github/workflows/image.yml`: the reviewer image and the build that publishes it.
 * `install.sh`: the no-Docker path (clones this repository, creates a virtualenv, starts the console).
-
+* `aims_console/deploy/nc_workspace.sh` and `NC_WORKSPACE.md`: the same console inside a National
+  Compute Marshall workspace, for members of an organization that has one (the compute moves there;
+  the model key is still yours).
 * `rerun_kit/`: the scripts behind the blinded discovery-loop reruns (arm builders, the sandboxed
   runner, campaign driver, audits, token ledger, aggregation), with their own README.
 

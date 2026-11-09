@@ -8,6 +8,10 @@ let pendingApproval = null;
    the browser that starts a run is the only one that sees it (a client id). A static copy with
    window.AIMS_STATIC and no reachable backend: the recorded runs are replayed. */
 const BACKEND = (window.AIMS_BACKEND || (() => { try { return localStorage.getItem("aims-backend") || ""; } catch (e) { return ""; } })()).replace(/\/$/, "");
+/* Served by the console itself behind a path prefix (a National Compute workspace exposes a port at
+   .../port/8080/, a reverse proxy may mount it at /AIMS/): every call keeps the page's own prefix. */
+const PAGE_PREFIX = location.pathname.endsWith("/") ? location.pathname.slice(0, -1) : location.pathname.replace(/\/[^/]*$/, "");
+const SERVICE = BACKEND || PAGE_PREFIX;
 let STATIC = null;                       // set when the page falls back to the recorded runs
 const RECORDED = window.AIMS_STATIC || null;
 let replayTimers = [];
@@ -35,7 +39,7 @@ async function api(path, opts) {
   const sep = path.includes("?") ? "&" : "?";
   const headers = {"Content-Type": "application/json"};
   if (TOKEN) headers["X-AIMS-Token"] = TOKEN;
-  const r = await fetch(`${BACKEND}${path}${sep}client=${encodeURIComponent(CLIENT)}`,
+  const r = await fetch(`${SERVICE}${path}${sep}client=${encodeURIComponent(CLIENT)}`,
                         Object.assign({headers}, opts || {}));
   let body;
   try { body = await r.json(); } catch (e) { body = {}; }
@@ -289,7 +293,7 @@ function attach(runId) {
   $("approval").hidden = true;
   $("steps").innerHTML = "";
   $("runid").textContent = runId;
-  $("download").href = `${BACKEND}/api/runs/${runId}/events.jsonl?client=${encodeURIComponent(CLIENT)}` + (TOKEN ? `&token=${encodeURIComponent(TOKEN)}` : "");
+  $("download").href = `${SERVICE}/api/runs/${runId}/events.jsonl?client=${encodeURIComponent(CLIENT)}` + (TOKEN ? `&token=${encodeURIComponent(TOKEN)}` : "");
   $("download").hidden = false;
   $("stop").disabled = false;
   for (const id of ["pos", "dist", "move", "vbg", "frame"]) $(id).textContent = "–";
@@ -310,7 +314,7 @@ function attach(runId) {
   const base = BACKEND ? new URL(BACKEND) : location;
   const proto = base.protocol === "https:" ? "wss" : "ws";
   // keep the service's path prefix, so a service behind a path (https://example.org/AIMS) works as well as a host
-  const prefix = BACKEND ? base.pathname.replace(/\/$/, "") : "";
+  const prefix = BACKEND ? base.pathname.replace(/\/$/, "") : PAGE_PREFIX;
   ws = new WebSocket(`${proto}://${base.host}${prefix}/ws/runs/${runId}?client=${encodeURIComponent(CLIENT)}` + (TOKEN ? `&token=${encodeURIComponent(TOKEN)}` : ""));
   ws.onmessage = (m) => handle(JSON.parse(m.data));
   ws.onclose = () => {};
@@ -398,7 +402,7 @@ function parseState(name, text, input) {
    x_um = (px - origin_x) / s, y_um = -(py - origin_y) / s with s = template_height_px / template_height_um. */
 function setTemplate(t) {
   if (!t || !t.width_px) return;
-  const url = t.url && t.url.startsWith("/") ? BACKEND + t.url : t.url;
+  const url = t.url && t.url.startsWith("/") ? SERVICE + t.url : t.url;
   stage.tpl = {url, W: t.width_px, H: t.height_px, ox: t.origin_x_px, oy: t.origin_y_px, s: t.height_px / t.height_um};
 }
 function templateExtent() {

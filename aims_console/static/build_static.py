@@ -153,14 +153,14 @@ def main():
         css = inline_fonts(css, web / "fonts")
     js = (web / "app.js").read_text()
     html = (web / "index.html").read_text()
-    html = html.replace('<link rel="stylesheet" href="/static/style.css">', "<style>\n" + css + "\n</style>")
+    html = html.replace('<link rel="stylesheet" href="static/style.css">', "<style>\n" + css + "\n</style>")
     backend_line = f"window.AIMS_BACKEND = {json.dumps(a.backend.rstrip('/'))};" if a.backend else ""
     if a.token:
         backend_line += f"window.AIMS_TOKEN = {json.dumps(a.token)};"
-    html = html.replace('<script src="/static/app.js"></script>',
+    html = html.replace('<script src="static/app.js"></script>',
                         "<script>" + backend_line + "window.AIMS_STATIC = " + json.dumps(data).replace("</", "<\\/") + ";</script>\n<script>\n" + js + "\n</script>")
     html = html.replace("<title>AIMS console</title>", '<title>AIMS console</title>\n<meta name="robots" content="noindex,nofollow,noarchive">')
-    assert "/static/" not in html, "an unrewritten /static/ reference is left in the page"
+    assert 'src="static/' not in html and 'href="static/' not in html, "an unrewritten static/ reference is left in the page"
 
     password = a.password or passphrase()
     salt = secrets.token_bytes(32)

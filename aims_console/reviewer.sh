@@ -4,19 +4,21 @@
 #
 #   ./reviewer.sh            # first run creates .venv and installs the requirements (a few minutes)
 #
-# Needs Python 3.12 (python3.12 on PATH, or set PYTHON=/path/to/python3.12) and the AIMS code next
-# to this directory (../aims: mcpServer/, prompts/, templates/, examples/), which install.sh fetches.
+# Needs Python 3.11 or 3.12 (python3.12 or python3.11 on PATH, or set PYTHON=/path/to/one) and the
+# AIMS code next to this directory (../aims: mcpServer/, prompts/, templates/, examples/), which
+# install.sh fetches. Newer Pythons are refused: pySPM, which reads the microscope's files, does not
+# build on them yet.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="${AIMS_REPO:-$HERE/../aims}"
 PORT="${PORT:-8080}"
 PY="${PYTHON:-}"
 if [ -z "$PY" ]; then
-  for c in python3.12 python3; do
-    if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'; then PY="$c"; break; fi
+  for c in python3.12 python3.11 python3; do
+    if command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(0 if sys.version_info[:2] in ((3, 11), (3, 12)) else 1)'; then PY="$c"; break; fi
   done
 fi
-[ -n "$PY" ] || { echo "Python 3.12 is needed (python3.12 on PATH, or PYTHON=/path/to/it). pySPM, which reads the microscope's files, does not build on newer Pythons yet."; exit 1; }
+[ -n "$PY" ] || { echo "Python 3.11 or 3.12 is needed (python3.12 or python3.11 on PATH, or PYTHON=/path/to/it). pySPM, which reads the microscope's files, does not build on newer Pythons yet."; exit 1; }
 [ -d "$REPO/mcpServer" ] || { echo "the AIMS code is not at $REPO (expected mcpServer/, prompts/, templates/, examples/); run install.sh, or set AIMS_REPO"; exit 1; }
 if [ ! -x "$HERE/.venv/bin/python" ]; then
   echo "== creating .venv and installing the requirements (once)"
