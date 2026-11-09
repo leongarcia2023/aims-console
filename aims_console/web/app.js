@@ -118,19 +118,22 @@ function code(s) { const c = document.createElement("code"); c.textContent = s; 
 
 /* On the static copy the service address can be typed in (kept in this browser); a build can also pin it. */
 function serviceRow() {
-  if (!RECORDED || window.AIMS_BACKEND) return;
-  const row = $("servicerow");
-  row.hidden = false;
-  $("service").value = BACKEND || "http://127.0.0.1:8080";
-  $("servicenote").textContent = STATIC ? "The address of a console service; the default is one running on this computer (see below)." : `Connected to ${BACKEND}.`;
+  if (!RECORDED) return;
   const rl = RECORDED.config && RECORDED.config.runlocal;
-  if (rl && STATIC) {
+  if (!window.AIMS_BACKEND) {        // no pinned service: the address can be typed in
+    const row = $("servicerow");
+    row.hidden = false;
+    $("service").value = BACKEND || "http://127.0.0.1:8080";
+    $("servicenote").textContent = STATIC ? "The address of a console service; the default is one running on this computer (see below)." : `Connected to ${BACKEND}.`;
+  }
+  if (rl && STATIC) {                 // replaying (no service reachable): say how to run it yourself
     $("runlocal").hidden = false;
     $("cmd_docker").textContent = rl.docker || "";
     $("cmd_script").textContent = rl.script || "";
     const a = $("runlocal_repo"); a.href = rl.repo; a.textContent = rl.repo.replace(/^https?:\/\//, "");
     $("cmd_docker").hidden = !rl.docker; $("cmd_script").hidden = !rl.script;
   }
+  if (window.AIMS_BACKEND) return;
   $("serviceset").onclick = () => {
     const v = $("service").value.trim().replace(/\/$/, "");
     try { if (v) localStorage.setItem("aims-backend", v); else localStorage.removeItem("aims-backend"); } catch (e) {}

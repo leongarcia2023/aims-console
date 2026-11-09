@@ -101,7 +101,7 @@ def main():
     ap.add_argument("--mcp-url", default="recorded simulator runs", help="shown in the byline while replaying")
     ap.add_argument("--model", default="as recorded", help="shown in the byline while replaying")
     ap.add_argument("--sim", action="store_true", default=True)
-    ap.add_argument("--note", default="This page replays the recorded simulator runs listed under Runs; nothing here reaches an instrument or an agent. With a service, it does live runs on your own API key.")
+    ap.add_argument("--note", default="This page replays the recorded simulator runs listed under Runs; nothing here reaches an instrument or an agent. With the console service up, the same page runs live.")
     ap.add_argument("--iterations", type=int, default=600_000)
     ap.add_argument("--include", nargs="*", default=None, help="run ids to include (default: every run under --runs)")
     ap.add_argument("--artifact", action="store_true",
