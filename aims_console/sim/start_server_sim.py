@@ -4,6 +4,7 @@
     python start_server_sim.py --mcp-dir /path/to/AIMS/mcpServer [--port 8000]
         [--template /path/to/templates/ArrowMarker_10x.jpg] [--examples /path/to/examples]
         [--seed 0] [--p-defect 0.30] [--init-r 500 | --start-xy X,Y] [--scan-seconds 0.5]
+        [--stage-step-um=X,Y]
 
 Nothing in the team's code is modified. The server does
 ``from hardware_connections import HardwareManager`` inside each tool and
@@ -19,6 +20,29 @@ import logging
 import os
 import sys
 from pathlib import Path
+
+
+def controller_step_um(server, cc):
+    """um per step in x and y as the team's controller turns a movement into steps
+    (CenteringController._calculate_movement: the server's stage_config if it found one, else the
+    controller's built-in values). Measured by asking it for a 90 um move along each axis."""
+    import types
+    import numpy as np
+    cfg = getattr(server, "stage_config", None) or {}
+    att = cfg.get("attocube") or {}
+    probe = types.SimpleNamespace(stage_config=cfg)
+    out = []
+    for axis, pos in (("x", (-90.0, 0.0)), ("y", (0.0, -90.0))):
+        mv = cc.CenteringController._calculate_movement(probe, np.array(pos), 1.0, 90.0)
+        measured = 90.0 / mv[f"{axis}_steps"]                    # whole steps: good to about 0.2 percent
+        stated = att.get(f"microns_per_step_{axis}")
+        if stated is not None and abs(float(stated) / measured - 1) < 0.01:
+            out.append(float(stated))
+        elif abs(round(measured, 2) / measured - 1) < 0.005:
+            out.append(round(measured, 2))
+        else:
+            out.append(round(measured, 4))
+    return tuple(out)
 
 
 def main():
@@ -44,6 +68,11 @@ def main():
     ap.add_argument("--blocking-tools", action="store_true",
                     help="run the tools on the server's event loop, as the team's server does. A tool that computes for "
                          "more than about five minutes (GP regression on a small machine) then loses its answer")
+    ap.add_argument("--stage-step-um", default=None,
+                    help="true displacement of the simulated stage per step, 'x,y' in um. Default: the calibration the "
+                         "team's controller computes with, so a move lands where it intends. Write it with an equals "
+                         "sign: --stage-step-um=-0.3,0.7 gives the stage of the runs before 2026-11-12, whose y moves "
+                         "were 1.84 times too long")
     ap.add_argument("--heavy-lock", default=None,
                     help="a file shared by the simulators of one console: GP regression (a peak of about 5.4 GB) "
                          "takes an exclusive lock on it, so only one runs at a time across the console's runs")
@@ -88,6 +117,13 @@ def main():
     import mcp_server_sse
     mcp_server_sse.HardwareManager = sim_hardware.SimHardwareManager  # in case a tool binds the name at import
 
+    ctrl = controller_step_um(mcp_server_sse, centering_controller)
+    if a.stage_step_um:
+        sx, sy = (float(v) for v in a.stage_step_um.split(","))
+    else:
+        sx, sy = ctrl
+    sim_hardware.STEP_UM.update(x=sx, y=sy)
+
     import uvicorn
     from mcp_server_sse import mcp, create_starlette_app
     n_tools = len(getattr(mcp, "_tool_manager")._tools)
@@ -97,6 +133,8 @@ def main():
         print(f"  tools run in worker threads, one at a time: {make_tools_threaded(mcp, heavy_lock=lock)} wrapped"
               + (f"; GP regression waits on {lock}" if lock else ""))
     print(f"AIMS MCP server on a SIMULATED instrument: {n_tools} tools, SSE at http://localhost:{a.port}/sse")
+    print(f"  stage: {sx} and {sy} um per step in x and y; the controller computes with {ctrl[0]} and {ctrl[1]}"
+          + ("" if (sx, sy) == ctrl else "  (NOT the same: moves will not land where the controller intends)"))
     print(f"  template {os.environ['AIMS_SIM_TEMPLATE']}\n  examples {os.environ['AIMS_SIM_EXAMPLES']}\n"
           f"  sessions {os.environ['AIMS_SIM_SESSIONS']}\n  seed {a.seed}, p_defect {a.p_defect}, "
           f"start {'xy=' + a.start_xy if a.start_xy else f'r={a.init_r} um'}")

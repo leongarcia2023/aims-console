@@ -195,9 +195,13 @@ unmodified server (`start_server_sim.py` rebinds the name before importing `mcp_
   (template crop, actuator and row noise, a tip-retraction defect with probability `p_defect`)
   and writes a genuine Nanonis `.sxm` (17 channels, both directions) that pySPM and the
   server's `get_sxm_image`, `convert_sxm_to_png`, `run_gp_regression` and the particle filter
-  read unchanged. `move_tip` / `execute_movement` move the stage with the configured
-  microns-per-step and actuator error. Start position: `--init-r` (random direction) or
-  `--start-xy`.
+  read unchanged. `move_tip` / `execute_movement` move the stage by the microns-per-step the
+  team's controller itself computes with (read from it at start-up, so a move lands where the
+  controller intends; `--stage-step-um=X,Y` sets another value), plus actuator error. Builds
+  before 2026-11-12 moved the stage by the values of the repository's `config/stage_config.yaml`
+  (-0.3 and 0.7), which the server does not find when it runs in `mcpServer/`, against the
+  controller's built-in -0.28 and 0.38: every y move was 1.84 times too long. Start position:
+  `--init-r` (random direction) or `--start-xy`.
 * Measurement: with a scan frame of 10 um or less, `scan` and `bottom_gate_ramp_and_scan`
   replay the recorded `examples/VbgScans` image nearest to the requested V_bg; the generic
   sweeper replays `examples/GridSpectra` in order; `analyze_sxm_dynamics`,

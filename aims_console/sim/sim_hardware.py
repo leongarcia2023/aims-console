@@ -46,7 +46,13 @@ UM_PER_PX = 0.875496
 SCAN_UM_DEFAULT = 53.0
 NAV_FRAME_MIN_UM = 10.0          # frames wider than this are navigation scans (synthetic);
                                  # narrower frames are measurement scans (replayed)
-STEP_UM = {"x": -0.3, "y": 0.7}  # config/stage_config.yaml microns_per_step
+# True displacement of the simulated stage per step, um. start_server_sim.py sets it at start-up to
+# the calibration the team's controller itself computes with (centering_controller, behind
+# calculate_movement_from_prediction), so that a move lands where the controller intends. The
+# values here are that controller's built-in ones and serve only when this module is used alone.
+# Until 2026-11-12 this was -0.3 and 0.7, the values of the repository's config/stage_config.yaml,
+# a file the server does not find when it runs in mcpServer/: every y move was 1.84 times too long.
+STEP_UM = {"x": -0.28, "y": 0.38}
 
 
 # --------------------------------------------------------------------------------------
@@ -448,7 +454,8 @@ class SimHardwareManager:
         world.move(dx, dy)
         time.sleep(0.05)
         nano._log({"event": "move", "x_steps": float(x_steps), "y_steps": float(y_steps),
-                   "commanded_um": [dx, dy], "true_xy_um": world.true_xy(), "true_r_um": world.true_r()})
+                   "commanded_um": [dx, dy], "um_per_step": [STEP_UM["x"], STEP_UM["y"]],
+                   "true_xy_um": world.true_xy(), "true_r_um": world.true_r()})
         return {"x_steps": float(x_steps), "y_steps": float(y_steps),
                 "nominal_displacement_um": [round(dx, 2), round(dy, 2)], "status": "moved"}
 

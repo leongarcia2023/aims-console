@@ -163,13 +163,23 @@ stops when the predicted distance is under 50 µm. On the marker chip the centre
 nearest marker is 42 µm from the target, and a 53 µm scan frame centred within 30 µm of it
 shows no marker in two directions out of three. The simulator draws its scans from the
 template, so there the particle filter returns a wrong position with a large uncertainty, GP
-regression does not repair it, and the loop can leave the target and come back several times
-before it gets a scan it can place. In a test with the paper's model and the released prompt
-(three seeds, limits of 75 minutes and 200 turns) the loop stopped by itself in 2 of 6 runs. A
-run that reaches a cap this way shows this limit, not a fault of the agent; `truth.jsonl` shows
-where the stage was. The radius is in steps 9 and 10 of the prompt, which the page lets you
-edit. Replayed on the logs of the same six runs, a radius of 150 µm would have ended all of
-them within 16 to 39 minutes.
+regression does not repair it, and the loop leaves the target and comes back. A scripted
+operator that follows the prompt without GP regression (no model, seeds 3, 9 and 10, 16 scan
+cycles each) did not stop in any of its three runs, although the stage had been within 50 µm of
+the target eight times. A run that reaches a cap this way shows this limit, not a fault of the
+agent; `truth.jsonl` shows where the stage was. The radius is in steps 9 and 10 of the prompt,
+which the page lets you edit. The paper's Methods give 150 µm for the published navigation run,
+and with 150 µm the same three scripted runs end after 5 to 8 cycles, 77 to 110 µm from the
+target.
+
+Builds of the simulator from before 2026-11-12 also moved the stage too far: 1.84 times the
+intended distance in y and 1.07 times in x. The simulated stage took its step sizes from the
+repository's `config/stage_config.yaml`, which the server does not find when it runs in
+`mcpServer/`, while the controller computed with its built-in ones. Navigation runs recorded
+with those builds show it in every stage move, the nine runs of the rule test with the paper's
+model among them (there the loop stopped by itself in 2 of 6 runs that had the recovery steps).
+Now the stage moves by the controller's own calibration; `--stage-step-um=X,Y` on
+`start_server_sim.py` sets another.
 
 ## 5. The hand-off, and the measurement loop
 
@@ -247,6 +257,7 @@ Before the first hardware run:
 | The agent waits on `run_gp_regression` and the call never returns | A build of the simulator from before 2026-11-12 computed on the server's event loop, and the client dropped the silent connection after about five minutes. Update: the tools now run in worker threads. The microscope's own server still computes on its event loop, so the same can happen there with a tool that runs longer than that. |
 | "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB (concurrent runs take turns at it). Give Docker, or the machine, 7 GB, and about 1 GB more for every further run at the same time. |
 | The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
+| In a recorded run the stage moves further than the 100 µm the controller allows | A build of the simulator from before 2026-11-12: its stage moved 1.84 times too far in y (end of section 4). Update. |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 
