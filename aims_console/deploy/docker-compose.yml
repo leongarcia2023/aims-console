@@ -26,7 +26,7 @@ services:
       - --origins
       - ${AIMS_ORIGINS:-https://leonmgarcia.com}
       - --max-concurrent
-      - ${AIMS_MAX_CONCURRENT:-3}
+      - ${AIMS_MAX_CONCURRENT:-2}
       - --max-turns-cap
       - ${AIMS_MAX_TURNS_CAP:-80}
       - --wall-limit-min
@@ -41,13 +41,17 @@ services:
       - runs:/runs
     expose:
       - "8080"
-    # a navigation run holds one simulator plus the agent subprocess; the particle filter is the
-    # heavy part (one to two minutes of one core per estimate). Size the limits to --max-concurrent.
+    # A navigation run holds one simulator plus the agent subprocess. The particle filter takes about
+    # a minute of one core per estimate. GP regression (step 7 of the navigation prompt) is the heavy
+    # part: its simulator peaks at about 5.4 GB (measured 2026-11-12) and it takes 5 to 9 minutes on two
+    # cores. The simulators take turns at it (one lock file per console), so the limit has to carry one
+    # regression plus what each run holds anyway (an idle simulator 0.4 GB, its agent process 0.2 to
+    # 0.4 GB). Below 6g the simulator is killed in step 7. Defaults: two runs, 7g, on an 8 GB machine.
     deploy:
       resources:
         limits:
           cpus: "${AIMS_CPUS:-2}"
-          memory: ${AIMS_MEMORY:-3g}
+          memory: ${AIMS_MEMORY:-7g}
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }

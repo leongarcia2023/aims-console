@@ -80,13 +80,27 @@ class SimServer:
                 await s.initialize()
                 return (await s.list_tools()).tools
 
-    def stop(self):
-        if self.proc and self.proc.poll() is None:
+    def stop(self, grace_s: float = 1.5):
+        """Stop the simulator and make sure it is gone. SIGTERM first; a simulator that is inside a long
+        tool (one GP regression holds several GB for minutes) does not finish its shutdown, so after
+        grace_s it is killed. Its ground truth is appended per event, so nothing is lost by the kill."""
+        proc, self.proc = self.proc, None
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            pgid = os.getpgid(proc.pid)
+        except Exception:
+            pgid = None
+        for sig in (15, 9):
             try:
-                os.killpg(os.getpgid(self.proc.pid), 15)
+                if pgid is not None:
+                    os.killpg(pgid, sig)
+                else:
+                    proc.send_signal(sig)
             except Exception:
-                try:
-                    self.proc.terminate()
-                except Exception:
-                    pass
-        self.proc = None
+                pass
+            t0 = time.time()
+            while time.time() - t0 < grace_s:
+                if proc.poll() is not None:
+                    return
+                time.sleep(0.05)

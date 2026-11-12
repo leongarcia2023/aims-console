@@ -34,6 +34,19 @@ def main():
     ap.add_argument("--start-xy", default=None, help="initial true position 'x,y' in um (overrides --init-r)")
     ap.add_argument("--scan-seconds", type=float, default=0.5, help="pause per simulated scan")
     ap.add_argument("--bind", default="0.0.0.0", help="interface to listen on (127.0.0.1 for per-run servers behind the console)")
+    ap.add_argument("--couple-controller", action="store_true",
+                    help="a scan with the tip-retraction defect leaves the Z controller OFF, and more tip lift lowers "
+                         "the defect probability (off by default; used by the navigation rule test)")
+    ap.add_argument("--threaded-tools", action="store_true",
+                    help="the default since 2026-11-12, kept so that older command lines still work: each tool runs in a "
+                         "worker thread (one at a time) so the SSE keep-alive keeps flowing during a long call "
+                         "(threaded_tools.py)")
+    ap.add_argument("--blocking-tools", action="store_true",
+                    help="run the tools on the server's event loop, as the team's server does. A tool that computes for "
+                         "more than about five minutes (GP regression on a small machine) then loses its answer")
+    ap.add_argument("--heavy-lock", default=None,
+                    help="a file shared by the simulators of one console: GP regression (a peak of about 5.4 GB) "
+                         "takes an exclusive lock on it, so only one runs at a time across the console's runs")
     a = ap.parse_args()
 
     mcp_dir = Path(a.mcp_dir).resolve()
@@ -48,6 +61,8 @@ def main():
     if a.start_xy:
         os.environ["AIMS_SIM_START_XY"] = a.start_xy
     os.environ["AIMS_SIM_SCAN_SECONDS"] = str(a.scan_seconds)
+    if a.couple_controller:
+        os.environ["AIMS_SIM_COUPLE_CONTROLLER"] = "1"
     os.environ["AIMS_SIM"] = "1"
 
     here = Path(__file__).resolve().parent
@@ -76,6 +91,11 @@ def main():
     import uvicorn
     from mcp_server_sse import mcp, create_starlette_app
     n_tools = len(getattr(mcp, "_tool_manager")._tools)
+    if not a.blocking_tools:
+        from threaded_tools import make_tools_threaded
+        lock = str(Path(a.heavy_lock).resolve()) if a.heavy_lock else None
+        print(f"  tools run in worker threads, one at a time: {make_tools_threaded(mcp, heavy_lock=lock)} wrapped"
+              + (f"; GP regression waits on {lock}" if lock else ""))
     print(f"AIMS MCP server on a SIMULATED instrument: {n_tools} tools, SSE at http://localhost:{a.port}/sse")
     print(f"  template {os.environ['AIMS_SIM_TEMPLATE']}\n  examples {os.environ['AIMS_SIM_EXAMPLES']}\n"
           f"  sessions {os.environ['AIMS_SIM_SESSIONS']}\n  seed {a.seed}, p_defect {a.p_defect}, "

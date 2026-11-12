@@ -80,7 +80,14 @@ exists so a reviewer can do their own runs rather than watch recorded ones:
 
 * `--sim-per-run`: every run starts its own simulated MCP server (`backend/simpool.py`) on a
   loopback port, with its sessions under the run's directory, and stops it at the end. Runs
-  never share instrument state, and no shared server needs to be running.
+  never share instrument state, and no shared server needs to be running. The simulator runs
+  the tools in worker threads (`sim/threaded_tools.py`; `--blocking-tools` on
+  `start_server_sim.py` restores the team server's behaviour), because a tool that computes on
+  the event loop for more than about five minutes loses its answer. GP regression peaks at about
+  5.4 GB, so the simulators of one console take turns at it through a lock file
+  in the runs directory (`--heavy-lock`). A tool call may take 45 minutes
+  (`AIMS_TOOL_TIMEOUT_MIN`); the CLI's own limit is 300 s. A simulator that is still computing
+  when its run ends is killed.
 * `--public`: bring your own key. The page asks for an Anthropic or OpenAI key; the key travels
   with the run request, lives in that run's process environment (Claude) or request headers
   (OpenAI), and is never written to disk or logged (`meta.json` keeps `own_key: true`). The

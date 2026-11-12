@@ -479,6 +479,10 @@ def sim_args() -> List[str]:
         args += ["--template", str(t["path"])]
     if CFG.get("examples"):
         args += ["--examples", str(CFG["examples"])]
+    if CFG.get("runs_dir"):
+        # One GP regression peaks at about 5.4 GB. The per-run simulators share this lock
+        # file, so only one regression computes at a time across the console's runs (threaded_tools.py).
+        args += ["--heavy-lock", str(Path(str(CFG["runs_dir"])) / ".heavy_tools.lock")]
     return args
 
 

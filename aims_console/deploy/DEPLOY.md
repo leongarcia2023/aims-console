@@ -24,9 +24,10 @@ Compute workspace cannot be that machine: its ports open only to the owner's own
 
 ## The twenty minutes
 
-1. Create the VPS: Ubuntu 24.04, 2 vCPU, 4 GB, 40 GB disk is enough for three concurrent runs
-   (Hetzner CX22 or CPX21, DigitalOcean 2 vCPU / 4 GB, Linode 4 GB; roughly 4 to 24 USD a month at
-   2026 prices), with your SSH key. Note its IPv4 address.
+1. Create the VPS: Ubuntu 24.04, 2 vCPU, 8 GB, 40 GB disk, with your SSH key. Note its IPv4
+   address. The 4 GB sizes are too small: in one GP regression (step 7 of the navigation prompt)
+   the simulator peaks at about 5.4 GB (measured 2026-11-12), and the kernel kills it. More cores
+   shorten the regression (5 to 9 minutes on two).
 2. At the registrar of leonmgarcia.com, add one record: `A  aims  <that IPv4>` (TTL short).
    Nothing else on the domain changes; GitHub Pages keeps serving the site.
 3. For hosted mode, make the key: in the Anthropic Console create a key for this purpose (its own
@@ -63,9 +64,16 @@ Compute workspace cannot be that machine: its ports open only to the owner's own
 
 ## What the service needs (for anyone redoing this elsewhere)
 
-* Linux with Docker. Two cores and 4 GB carry three concurrent runs; the particle filter is the
-  load, one to two minutes of one core per position estimate. The compose file caps the container
-  at `AIMS_CPUS` and `AIMS_MEMORY` (defaults 2 and 3g); raise `AIMS_MAX_CONCURRENT` only with them.
+* Linux with Docker, two cores and 8 GB. The particle filter takes about a minute of one core
+  per position estimate. GP regression is the heavy step: its simulator peaks at about 5.4 GB and
+  it takes 5 to 9 minutes on two cores. The per-run simulators take turns at it through one lock
+  file under the runs directory, so memory has to carry one regression plus what each run holds
+  anyway (an idle simulator 0.4 GB, its agent process 0.2 to 0.4 GB), and a second run that needs
+  a regression waits for the first. The compose file caps the container at `AIMS_CPUS` and
+  `AIMS_MEMORY` (defaults 2 and 7g) and runs two loops at once (`AIMS_MAX_CONCURRENT`, default 2);
+  raise the concurrency only with the memory.
+  An earlier version of this file said 4 GB and a 3g cap. That was wrong for any run that reaches
+  step 7.
 * A host name whose A record points at it and ports 80 and 443 open, so Caddy can get a
   certificate. The page is served over HTTPS, and browsers refuse a plain-http API from an https page.
 * The access token: the service accepts API calls only with it; the static page carries it inside
@@ -86,7 +94,7 @@ Changing the host name or the token means rebuilding and re-pushing the page (st
   request headers of the run's own calls (OpenAI driver); it is not written to `meta.json`,
   `events.jsonl` or the service log, and `meta.json` records only `own_key: true`.
 * Caps: turns (`--max-turns-cap`, 80), wall time (`--wall-limit-min`, 45; the watchdog stops the
-  run and marks it), concurrent runs (`--max-concurrent`, 3; the next gets a 429 and a message to
+  run and marks it), concurrent runs (`--max-concurrent`, 2; the next gets a 429 and a message to
   try again later). In hosted mode these caps are the spend control per run; the Anthropic Console
   limit is the spend control overall.
 * A run is visible only to the browser that started it (a random client id in that browser's

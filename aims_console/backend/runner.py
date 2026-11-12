@@ -40,6 +40,11 @@ from typing import Any, Dict, List, Optional
 
 IMAGE_RE = re.compile(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+")
 
+# How long one MCP tool call may take. The CLI's own limit is 300 s without output, and one GP
+# regression of the team's tool takes 5 to 9 minutes on two cores, so step 7 of the navigation
+# prompt could not complete (seen 2026-11-11). The run's wall-time limit still applies.
+TOOL_TIMEOUT_MS = int(float(os.environ.get("AIMS_TOOL_TIMEOUT_MIN", "45")) * 60_000)
+
 # tools that change the instrument's state; held for approval when the run asks for it
 INSTRUMENT_TOOLS = {"move_tip", "execute_movement", "approach_and_lift", "retract_tip", "bottom_gate_ramp",
                     "bottom_gate_ramp_and_scan", "top_gate_ramp", "generic_sweeper_start",
@@ -271,7 +276,8 @@ class ClaudeRun(BaseRun):
         # instrument tools stay out of that list and every call goes through can_use_tool, which
         # allows analysis tools at once and holds the instrument tools for the operator.
         if self.tools_mode == "mcp":
-            kw["mcp_servers"] = {"aims": {"type": "sse", "url": self.mcp_url}}
+            kw["mcp_servers"] = {"aims": {"type": "sse", "url": self.mcp_url, "timeout": TOOL_TIMEOUT_MS}}
+            env["MCP_TOOL_TIMEOUT"] = str(TOOL_TIMEOUT_MS)
             kw["strict_mcp_config"] = True
             kw["allowed_tools"] = ([] if self.approve else ["mcp__aims"]) + (["Skill"] if self.skills_dir else [])
             kw["disallowed_tools"] = ["Bash", "Write", "Edit", "WebSearch", "WebFetch", "Agent", "NotebookEdit"]

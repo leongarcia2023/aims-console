@@ -153,6 +153,20 @@ again. That is the protocol working, not a fault. The simulator writes the true 
 every scan and move to `sessions/sim/<stamp>/truth.jsonl` in the server directory; the agent
 never sees that file, so it is the yardstick for how well the loop did.
 
+GP regression is the slow step. One call takes 5 to 9 minutes on two cores and its memory peaks
+at about 5.4 GB, and the ledger shows nothing meanwhile. The console gives a tool call
+45 minutes (`AIMS_TOOL_TIMEOUT_MIN`), and the simulator runs its tools in worker threads so that
+the connection stays alive during a long call.
+
+A known limit of the simulator (found 2026-11-12). The template has no marker within about
+47 µm of the target, and the simulator draws its scans from the template, so a scan taken at
+the target is blank. The particle filter then returns a wrong position with a large
+uncertainty, GP regression does not repair it, and the loop can leave the target and come back
+several times before it gets a scan it can place. In a test with the paper's model and prompt
+(three seeds, limits of 75 minutes and 200 turns) the loop stopped by itself in 2 of 6 runs. A
+run that reaches a cap this way shows the simulator's limit, not a fault of the agent or of the
+protocol; `truth.jsonl` shows where the stage was.
+
 ## 5. The hand-off, and the measurement loop
 
 When a run finishes, press **Use as the hand-off note**. The final message is copied into the
@@ -226,6 +240,9 @@ Before the first hardware run:
 | "runs are already in progress" | The concurrency cap (two with the Docker image, four by default). Wait a few minutes; runs end at 45 minutes at the latest. |
 | The run errors at once with an authentication message | The key is wrong or for the other provider. The error text is the provider's own. |
 | "wall-time limit reached" in the ledger | Public mode stops a run at 45 minutes. The log up to that point is complete. |
+| The agent waits on `run_gp_regression` and the call never returns | A build of the simulator from before 2026-11-12 computed on the server's event loop, and the client dropped the silent connection after about five minutes. Update: the tools now run in worker threads. The microscope's own server still computes on its event loop, so the same can happen there with a tool that runs longer than that. |
+| "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB (concurrent runs take turns at it). Give Docker, or the machine, 7 GB, and about 1 GB more for every further run at the same time. |
+| The navigation loop reaches the target and moves away again | The simulator's limit described at the end of section 4. |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 

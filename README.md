@@ -25,6 +25,11 @@ curl -fsSL https://raw.githubusercontent.com/leongarcia2023/aims-console/main/in
 Then open <http://localhost:8080>, pick a model, paste your key, start a navigation run.
 `aims_console/MANUAL.md` is the user guide; `aims_console/README.md` the technical reference.
 
+Memory: step 7 of the navigation loop (GP regression) takes 5 to 9 minutes and peaks at about
+5.4 GB. Give Docker 7 GB, or have that much free without Docker; with less than 6 GB the
+simulated instrument is killed at that step. The end of section 4 of the manual lists what the simulator does not
+reproduce.
+
 ## What is in here
 
 * `aims_console/`: the console (FastAPI service, two model drivers, simulator, page, skills).

@@ -129,14 +129,22 @@ class NavWorld:
         self.origin_px, self.um_per_px = origin_px, um_per_px
         self.p_defect, self.noise, self.row_drift = p_defect, noise, row_drift
         self.move_scale_err, self.move_add_err = move_scale_err, move_add_err_um
-        if start_xy_um is None:
-            ang = self.rng.uniform(0, 2 * np.pi)
-            self.pos = init_r_um * np.array([np.cos(ang), np.sin(ang)])
-        else:
-            self.pos = np.array(start_xy_um, dtype=float)
         H, W = self.t.shape
         self.lim_x = (-(origin_px[0] - 60) * um_per_px, (W - origin_px[0] - 60) * um_per_px)
         self.lim_y = (-(H - origin_px[1] - 60) * um_per_px, (origin_px[1] - 60) * um_per_px)
+        if start_xy_um is None:
+            # A start at init_r_um in a random direction can lie beyond the template's edge (the template is
+            # 953 um high), where a scan shows no marker at all. Draw the direction again until the start
+            # is inside the stage limits. A seed whose first draw is inside keeps its start and its stream.
+            for _ in range(200):
+                ang = self.rng.uniform(0, 2 * np.pi)
+                self.pos = init_r_um * np.array([np.cos(ang), np.sin(ang)])
+                if self.lim_x[0] <= self.pos[0] <= self.lim_x[1] and self.lim_y[0] <= self.pos[1] <= self.lim_y[1]:
+                    break
+            else:                                             # init_r_um larger than the template: clip
+                self.pos = np.array([np.clip(self.pos[0], *self.lim_x), np.clip(self.pos[1], *self.lim_y)])
+        else:
+            self.pos = np.array(start_xy_um, dtype=float)
         self.n_scans = self.n_moves = 0
         self.last_defect = False
 
@@ -146,7 +154,7 @@ class NavWorld:
     def true_r(self) -> float:
         return float(np.hypot(*self.pos))
 
-    def scan(self, frame_um: float, nx: int, ny: int, lift: bool = False) -> np.ndarray:
+    def scan(self, frame_um: float, nx: int, ny: int, lift: bool = False, p_override: Optional[float] = None) -> np.ndarray:
         import cv2
         self.n_scans += 1
         px = self.origin_px[0] + self.pos[0] / self.um_per_px
@@ -158,6 +166,9 @@ class NavWorld:
         crop = self.t[y0:y1, x0:x1] if (y1 > y0 and x1 > x0) else np.zeros((2, 2), np.float32)
         img = cv2.resize(crop, (nx, ny), interpolation=cv2.INTER_AREA).astype(np.float32)
         p = 0.02 if lift else self.p_defect
+        if p_override is not None:
+            p = float(p_override)
+        self.last_p = p
         self.last_defect = bool(self.rng.random() < p)
         if self.last_defect:                                  # tip retraction: rows die
             r0 = int(self.rng.integers(2, max(3, ny - 4)))
@@ -239,6 +250,14 @@ class SimNanonis:
         self.pixels, self.lines = 128, 40
         self.speed = 1.9e-6
         self.z_on = 1
+        # AIMS_SIM_COUPLE_CONTROLLER=1 (off by default, added 2026-11-11 for the navigation rule test):
+        # a navigation scan that suffers the tip-retraction defect leaves the Z controller OFF, as on
+        # the instrument, so the scan tool reports "failed" and check_controller_status reads OFF; and
+        # the defect probability falls with tip lift (p_defect at the prompt's 500 nm, halved for every
+        # further 100 nm, floor 0.02), so that "repeat with 100 nm more tip lift" has an effect.
+        # Without the flag a defect only degrades the image and the controller always reads ON.
+        self.couple_controller = os.environ.get("AIMS_SIM_COUPLE_CONTROLLER") == "1"
+        self.tip_lift = 5e-7
         self.ids: Dict[str, int] = {}
         self.sweep_n = 0
         self.last_file: Optional[Path] = None
@@ -326,7 +345,13 @@ class SimNanonis:
         path, sid = self._next_path(self.series)
         width_um = self.frame[2] * 1e6
         if width_um > NAV_FRAME_MIN_UM:                 # navigation: synthetic from template
-            img = self.world.scan(width_um, self.pixels, self.lines)
+            p_used = None
+            if self.couple_controller:
+                extra = max(0.0, (self.tip_lift - 5e-7) / 1e-7)
+                p_used = max(0.02, self.world.p_defect * 0.5 ** extra)
+            img = self.world.scan(width_um, self.pixels, self.lines, p_override=p_used)
+            if self.couple_controller and self.world.last_defect:
+                self.z_on = 0                           # the tip retracted during the scan
             # the server flips the stored image vertically (np.flipud) when it reads it
             stored = np.flipud(img)
             write_sxm(path, {"MIM-Im_AC-X": stored, "MIM-Re_AC-X": 0.5 * stored,
@@ -336,7 +361,9 @@ class SimNanonis:
                       comment="simulated navigation scan")
             self._log({"event": "scan", "file": str(path), "kind": "navigation", "frame_um": width_um,
                        "true_xy_um": self.world.true_xy(), "true_r_um": self.world.true_r(),
-                       "defect": self.world.last_defect})
+                       "defect": self.world.last_defect, "controller_on": bool(self.z_on),
+                       "tip_lift_m": self.tip_lift, "p_defect_used": getattr(self.world, "last_p", None),
+                       "coupled": self.couple_controller})
         else:                                           # measurement: replay a recorded image
             src, v = self.replay.nearest_vbg_file(self.vbg)
             if src is not None:
@@ -429,6 +456,8 @@ class SimHardwareManager:
         _, _, nano = self._world()
         time.sleep(0.05)
         nano.z_on = 1
+        nano.tip_lift = float(tip_lift)
+        nano._log({"event": "approach", "tip_lift_m": float(tip_lift)})
         return {"status": "approached and lifted", "tip_lift_m": float(tip_lift)}
 
     def scan_and_retract(self, series_name, direction="up", scan_speed=1.9e-6, pixels=128, lines=40):
