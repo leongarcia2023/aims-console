@@ -27,8 +27,8 @@ Then open <http://localhost:8080>, pick a model, paste your key, start a navigat
 
 Memory: step 7 of the navigation loop (GP regression) takes 5 to 9 minutes and peaks at about
 5.4 GB. Give Docker 7 GB, or have that much free without Docker; with less than 6 GB the
-simulated instrument is killed at that step. The end of section 4 of the manual lists what the simulator does not
-reproduce.
+simulated instrument is killed at that step. The end of section 4 of the
+manual says what to expect when the simulated tip reaches the target.
 
 ## What is in here
 

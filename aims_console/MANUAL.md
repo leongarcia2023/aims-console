@@ -158,14 +158,18 @@ at about 5.4 GB, and the ledger shows nothing meanwhile. The console gives a too
 45 minutes (`AIMS_TOOL_TIMEOUT_MIN`), and the simulator runs its tools in worker threads so that
 the connection stays alive during a long call.
 
-A known limit of the simulator (found 2026-11-12). The template has no marker within about
-47 µm of the target, and the simulator draws its scans from the template, so a scan taken at
-the target is blank. The particle filter then returns a wrong position with a large
-uncertainty, GP regression does not repair it, and the loop can leave the target and come back
-several times before it gets a scan it can place. In a test with the paper's model and prompt
+What to expect at the target (found 2026-11-12). The navigation prompt released with the code
+stops when the predicted distance is under 50 µm. On the marker chip the centre is empty: the
+nearest marker is 42 µm from the target, and a 53 µm scan frame centred within 30 µm of it
+shows no marker in two directions out of three. The simulator draws its scans from the
+template, so there the particle filter returns a wrong position with a large uncertainty, GP
+regression does not repair it, and the loop can leave the target and come back several times
+before it gets a scan it can place. In a test with the paper's model and the released prompt
 (three seeds, limits of 75 minutes and 200 turns) the loop stopped by itself in 2 of 6 runs. A
-run that reaches a cap this way shows the simulator's limit, not a fault of the agent or of the
-protocol; `truth.jsonl` shows where the stage was.
+run that reaches a cap this way shows this limit, not a fault of the agent; `truth.jsonl` shows
+where the stage was. The radius is in steps 9 and 10 of the prompt, which the page lets you
+edit. Replayed on the logs of the same six runs, a radius of 150 µm would have ended all of
+them within 16 to 39 minutes.
 
 ## 5. The hand-off, and the measurement loop
 
@@ -242,7 +246,7 @@ Before the first hardware run:
 | "wall-time limit reached" in the ledger | Public mode stops a run at 45 minutes. The log up to that point is complete. |
 | The agent waits on `run_gp_regression` and the call never returns | A build of the simulator from before 2026-11-12 computed on the server's event loop, and the client dropped the silent connection after about five minutes. Update: the tools now run in worker threads. The microscope's own server still computes on its event loop, so the same can happen there with a tool that runs longer than that. |
 | "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB (concurrent runs take turns at it). Give Docker, or the machine, 7 GB, and about 1 GB more for every further run at the same time. |
-| The navigation loop reaches the target and moves away again | The simulator's limit described at the end of section 4. |
+| The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 
