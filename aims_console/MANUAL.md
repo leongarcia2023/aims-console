@@ -188,7 +188,11 @@ repository's `config/stage_config.yaml`, which the server does not find when it 
 with those builds show it in every stage move, the nine runs of the rule test with the paper's
 model among them (there the loop stopped by itself in 2 of 6 runs that had the recovery steps).
 Now the stage moves by the controller's own calibration; `--stage-step-um=X,Y` on
-`start_server_sim.py` sets another.
+`start_server_sim.py` sets another. The team gives −0.3 and 0.7 µm per step for the instrument,
+the values of `config/stage_config.yaml`; `--stage-config /path/to/AIMS/config/stage_config.yaml`
+hands that file to the server as if it had found it, so the controller and the simulated stage
+both use those values. Without it the controller uses its built-in −0.28 and 0.38. Either way a
+move lands where the controller intends.
 
 ## 5. The hand-off, and the measurement loop
 

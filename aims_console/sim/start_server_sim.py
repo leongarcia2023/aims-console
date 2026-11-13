@@ -4,7 +4,7 @@
     python start_server_sim.py --mcp-dir /path/to/AIMS/mcpServer [--port 8000]
         [--template /path/to/templates/ArrowMarker_10x.jpg] [--examples /path/to/examples]
         [--seed 0] [--p-defect 0.30] [--init-r 500 | --start-xy X,Y] [--scan-seconds 0.5]
-        [--stage-step-um=X,Y]
+        [--stage-step-um=X,Y] [--stage-config /path/to/AIMS/config/stage_config.yaml]
 
 Nothing in the team's code is modified. The server does
 ``from hardware_connections import HardwareManager`` inside each tool and
@@ -68,6 +68,12 @@ def main():
     ap.add_argument("--blocking-tools", action="store_true",
                     help="run the tools on the server's event loop, as the team's server does. A tool that computes for "
                          "more than about five minutes (GP regression on a small machine) then loses its answer")
+    ap.add_argument("--stage-config", default=None,
+                    help="a stage_config.yaml to give the team's server as if it had found config/stage_config.yaml where "
+                         "it looks (relative to its working directory, mcpServer/, where the repository has none). The "
+                         "controller then converts with the file's microns_per_step_x and _y (the repository's file: "
+                         "-0.3 and 0.7, the values the team gives for the instrument), and the simulated stage follows "
+                         "unless --stage-step-um says otherwise. Without it the controller uses its built-in -0.28 and 0.38")
     ap.add_argument("--stage-step-um", default=None,
                     help="true displacement of the simulated stage per step, 'x,y' in um. Default: the calibration the "
                          "team's controller computes with, so a move lands where it intends. Write it with an equals "
@@ -117,6 +123,16 @@ def main():
     import mcp_server_sse
     mcp_server_sse.HardwareManager = sim_hardware.SimHardwareManager  # in case a tool binds the name at import
 
+    stage_config_note = "none given; the server's own lookup (config/stage_config.yaml under " + str(mcp_dir) + "): " + \
+        ("found" if mcp_server_sse.stage_config else "not found, the controller's built-in values apply")
+    if a.stage_config:
+        import yaml
+        with open(a.stage_config) as f:
+            cfg = yaml.safe_load(f) or {}
+        if not isinstance(cfg.get("attocube"), dict):
+            sys.exit(f"{a.stage_config} has no attocube section")
+        mcp_server_sse.stage_config = cfg                 # read by calculate_movement_from_prediction at call time
+        stage_config_note = f"{Path(a.stage_config).resolve()} given to the server (as if found where it looks)"
     ctrl = controller_step_um(mcp_server_sse, centering_controller)
     if a.stage_step_um:
         sx, sy = (float(v) for v in a.stage_step_um.split(","))
@@ -135,6 +151,7 @@ def main():
     print(f"AIMS MCP server on a SIMULATED instrument: {n_tools} tools, SSE at http://localhost:{a.port}/sse")
     print(f"  stage: {sx} and {sy} um per step in x and y; the controller computes with {ctrl[0]} and {ctrl[1]}"
           + ("" if (sx, sy) == ctrl else "  (NOT the same: moves will not land where the controller intends)"))
+    print(f"  stage config: {stage_config_note}")
     print(f"  template {os.environ['AIMS_SIM_TEMPLATE']}\n  examples {os.environ['AIMS_SIM_EXAMPLES']}\n"
           f"  sessions {os.environ['AIMS_SIM_SESSIONS']}\n  seed {a.seed}, p_defect {a.p_defect}, "
           f"start {'xy=' + a.start_xy if a.start_xy else f'r={a.init_r} um'}")
