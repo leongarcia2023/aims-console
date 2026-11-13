@@ -168,9 +168,18 @@ operator that follows the prompt without GP regression (no model, seeds 3, 9 and
 cycles each) did not stop in any of its three runs, although the stage had been within 50 µm of
 the target eight times. A run that reaches a cap this way shows this limit, not a fault of the
 agent; `truth.jsonl` shows where the stage was. The radius is in steps 9 and 10 of the prompt,
-which the page lets you edit. The paper's Methods give 150 µm for the published navigation run,
-and with 150 µm the same three scripted runs end after 5 to 8 cycles, 77 to 110 µm from the
-target.
+which the page lets you edit. The paper's Methods give 150 µm for the published navigation run
+(the team confirmed it on 2026-11-12, and that a simulator test on the marker chip should use
+150 µm), and with 150 µm the same three scripted runs end after 5 to 8 cycles, 77 to 110 µm from
+the target.
+
+When a run ends (changed 2026-11-12). The console's operating rules, the short system prompt
+every run gets, tell the agent to stop when the protocol's end condition is met. Until
+2026-11-12 they also said "or a tool reports experiment_complete". `predict_position` reports
+that flag whenever the predicted distance is under 50 µm, whatever the uncertainty, so a run
+could end on a prediction that step 7 sends to GP regression first. In the rule test with the
+paper's model all five runs with the recovery steps that the agent ended itself ended that way,
+90 to 282 µm from the target. The clause is gone; the flag is still in the tool's answer.
 
 Builds of the simulator from before 2026-11-12 also moved the stage too far: 1.84 times the
 intended distance in y and 1.07 times in x. The simulated stage took its step sizes from the
@@ -258,6 +267,7 @@ Before the first hardware run:
 | "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB (concurrent runs take turns at it). Give Docker, or the machine, 7 GB, and about 1 GB more for every further run at the same time. |
 | The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
 | In a recorded run the stage moves further than the 100 µm the controller allows | A build of the simulator from before 2026-11-12: its stage moved 1.84 times too far in y (end of section 4). Update. |
+| In a recorded run the agent stops on a prediction with an uncertainty above 53 µm, without GP regression | A build of the console from before 2026-11-12: its operating rules said to stop when a tool reports `experiment_complete` ("When a run ends", section 4). Update. |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 

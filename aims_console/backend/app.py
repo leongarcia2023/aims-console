@@ -70,8 +70,13 @@ OPERATING_RULES = (
     "You are operating a microwave impedance microscope through the tools of the 'aims' MCP server. "
     "Call one tool at a time and wait for its result before the next call. Report each step's outcome in one or "
     "two sentences. If a tool returns an error, say what failed and choose the next step from the protocol; do not "
-    "invent measurements. When the protocol's end condition is met, or a tool reports experiment_complete, stop and "
+    "invent measurements. When the protocol's end condition is met, stop and "
     "write a short summary of the final state (position estimate and uncertainty, files produced, open issues)."
+    # Until 2026-11-12 this also said "or a tool reports experiment_complete". predict_position reports that flag
+    # whenever the predicted distance is under 50 um, whatever the uncertainty, so the sentence could end a run on a
+    # prediction that step 7 of the navigation prompt sends to GP regression first (it did, at all five agent stops of
+    # the second round of the navigation rule test). The stop is now the protocol's alone, as in the team's LibreChat
+    # set-up, whose prompts and configuration do not mention the flag.
 )
 
 TEMPLATE_DEFAULTS = {"origin_x_px": 867, "origin_y_px": 498, "height_um": 952.54}   # the prompt's load_template call; particle_filter.Config.Z_HEIGHT
