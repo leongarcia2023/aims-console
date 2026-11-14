@@ -81,12 +81,22 @@ OPERATING_RULES = (
 
 TEMPLATE_DEFAULTS = {"origin_x_px": 867, "origin_y_px": 498, "height_um": 952.54}   # the prompt's load_template call; particle_filter.Config.Z_HEIGHT
 
-SKILL_STEPS = {
-    "3": "3. Use the aims-controller-recovery skill: it checks the controller status and, if the controller is off, "
-         "repeats steps 1 to 3 with 100 nm more tip lift until it is on. Wait until this is done.",
-    "7": "7. Use the aims-gp-recovery skill: if the uncertainty predicted in step 6 is larger than 53um in x or y, it runs "
-         "GP regression on the latest \"sampleLocating\" scan and repeats step 6 on the reconstructed image. Wait until this is done.",
-}
+# With "Recovery steps as skills" on, the navigation prompt stays exactly as the team wrote it. The backend installs
+# the two skills in the run's working directory and adds this sentence to the system prompt, so the prompt never
+# names a skill. (Until 2026-11-13 the console rewrote steps 3 and 7 of the prompt into one-line instructions to use
+# the skills; runs recorded before then show those lines in their prompt.)
+SKILLS_RULE = (
+    "Two skills are installed for the navigation protocol: aims-controller-recovery carries out step 3 and "
+    "aims-gp-recovery carries out step 7. When the protocol reaches one of these steps, invoke the skill for that "
+    "step with the Skill tool and let it carry the step out."
+)
+
+
+def system_prompt_for(loop: str, use_skills: bool) -> str:
+    """The system prompt of an instrument run: the operating rules, plus the skills sentence for navigation."""
+    if use_skills and loop == "navigation":
+        return OPERATING_RULES + " " + SKILLS_RULE
+    return OPERATING_RULES
 
 
 def provider_for(model: str) -> str:
@@ -94,18 +104,6 @@ def provider_for(model: str) -> str:
         if m["id"] == model:
             return m["provider"]
     return "openai" if model.lower().startswith(("gpt", "o1", "o3", "o4")) else "anthropic"
-
-
-def with_skill_steps(nav_prompt: str) -> str:
-    """The navigation prompt with steps 3 and 7 delegated to the two recovery skills."""
-    out = []
-    for line in nav_prompt.splitlines():
-        m = re.match(r"^(\d+)\.\s", line)
-        if m and m.group(1) in SKILL_STEPS:
-            out.append(SKILL_STEPS[m.group(1)])
-        else:
-            out.append(line)
-    return "\n".join(out)
 
 
 def load_prompts(repo: Path) -> Dict[str, str]:
@@ -377,12 +375,14 @@ async def start_run(req: StartRun):
     else:
         # the instrument: one shared server, or a private simulated one for this run
         per_run = bool(CFG.get("sim_per_run"))
-        skills_dir = SKILLS if use_skills else None
-        kw = dict(system_prompt=OPERATING_RULES, mcp_url=None if per_run else str(CFG["mcp_url"]), cwd=None,
+        # the recovery skills are steps of the navigation protocol: offered there only, never written into the prompt
+        nav_skills = use_skills and req.loop == "navigation"
+        skills_dir = SKILLS if nav_skills else None
+        kw = dict(system_prompt=system_prompt_for(req.loop, nav_skills), mcp_url=None if per_run else str(CFG["mcp_url"]), cwd=None,
                   approve=req.approve, approve_tools=None, tools_mode="mcp", skills_dir=skills_dir,
                   extra_meta={"provider": provider}, **common)
         if provider == "openai":
-            run = OpenAIRun(skills_text=skills_text() if use_skills else None, **kw)
+            run = OpenAIRun(skills_text=skills_text() if nav_skills else None, **kw)
         else:
             run = ClaudeRun(**kw)
         work = run.dir / "work"
@@ -546,9 +546,8 @@ def main():
     mcp_url = a.mcp_url or (None if a.sim_per_run else "http://localhost:8000/sse")
     prompts = load_prompts(repo)
     skills = not a.no_skills and SKILLS.is_dir()
+    # the prompts are the team's whether or not the skills are on (prompts_plain is kept for pages built before 2026-11-13)
     prompts_skills = dict(prompts)
-    if skills:
-        prompts_skills["navigation"] = with_skill_steps(prompts["navigation"])
     CFG.update(repo=str(repo), mcp_url=mcp_url, sim=bool(a.sim or a.sim_per_run or os.environ.get("AIMS_SIM") == "1"),
                sim_per_run=bool(a.sim_per_run), mcp_dir=str(Path(a.mcp_dir).resolve() if a.mcp_dir else repo / "mcpServer"),
                sim_script=str(ROOT / "sim" / "start_server_sim.py"), p_defect=a.p_defect,
@@ -556,7 +555,7 @@ def main():
                model=a.model, models=MODELS, packet=str(Path(a.packet).resolve()) if a.packet else None,
                runs_dir=str(Path(a.runs).resolve()), prompts=prompts_skills, prompts_plain=prompts,
                discovery_system_prompt=discovery_system_prompt(repo), loops=list(LOOP_FILES), prompt_files=LOOP_FILES,
-               operating_rules=OPERATING_RULES, template=template_info(repo), skills=skills,
+               operating_rules=OPERATING_RULES, skills_rule=SKILLS_RULE, template=template_info(repo), skills=skills,
                skill_names=sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else [],
                public=bool(a.public), hosted=bool(a.public and a.hosted), max_concurrent=a.max_concurrent,
                max_turns_cap=a.max_turns_cap, wall_limit_min=a.wall_limit_min, byok=bool(a.public and not a.hosted),

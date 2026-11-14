@@ -122,14 +122,17 @@ catalog is `MODELS` in `backend/app.py`.
 
 Steps 3 and 7 of the team's navigation prompt are conditional recoveries (controller off:
 retry the approach with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and
-predict again). With "Recovery steps as skills" ticked (the default), those two lines are
-replaced by one-line instructions to use `aims-controller-recovery` and `aims-gp-recovery`, and
-the skills themselves (`skills/*/SKILL.md`, copied into the run's working directory as
-`.claude/skills/`) carry the procedures. The Claude driver loads them through the SDK's project
+predict again). The prompt is never rewritten: with "Recovery steps as skills" ticked (the
+default), the backend copies `aims-controller-recovery` and `aims-gp-recovery`
+(`skills/*/SKILL.md`) into a navigation run's working directory as `.claude/skills/` and adds
+one sentence to the run's system prompt (`SKILLS_RULE` in `backend/app.py`) saying that they
+carry out steps 3 and 7. The skills carry the procedures. (Until 2026-11-13 the console
+replaced the two prompt lines with one-line instructions to use the skills; runs recorded
+before then, those of the navigation rule test included, show those lines in their prompt.) The Claude driver loads them through the SDK's project
 settings source and the agent invokes them with the Skill tool (visible in the ledger as
 `Skill aims-controller-recovery`); the GPT driver appends the skill texts to the system prompt,
-since the Responses API has no skill mechanism. Unticked, the prompt spells the steps out as
-before, which is the paper's configuration. Verified on 2026-11-07 in a live simulator run:
+since the Responses API has no skill mechanism. Unticked, the agent has only the prompt's own
+text for those steps, which is the paper's configuration. Verified on 2026-11-07 in a live simulator run:
 both skills were invoked at the right steps.
 
 ## What the page does

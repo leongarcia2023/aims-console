@@ -51,7 +51,7 @@
         <label class="chk"><input id="approve" type="checkbox"> Hold instrument actions for approval</label>
         <p class="note">Stage moves, approach, scans, gate ramps and sweeps wait for the operator; analysis tools run on their own.</p>
         <label class="chk" id="skillsrow"><input id="useskills" type="checkbox" checked> Recovery steps as skills</label>
-        <p class="note" id="skillsnote">Steps 3 and 7 of the navigation prompt (controller-status recovery, uncertainty-triggered GP recovery) are delegated to two versioned skills the agent invokes; unticked, the prompt spells them out as before.</p>
+        <p class="note" id="skillsnote">The prompt stays as the team wrote it. Ticked, the console gives a navigation run two versioned skills that carry out steps 3 and 7 (controller-status recovery, uncertainty-triggered GP recovery) and tells the agent so in its system prompt; unticked, the agent follows the prompt's own text for those steps.</p>
 
         <h3>Hand-off note</h3>
         <p class="note">Prepended to the prompt. Carry the previous loop's final message here, edit it, then start.</p>

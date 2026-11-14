@@ -100,7 +100,7 @@ async function init() {
     $("turnnote").textContent = `at most ${CFG.max_turns_cap} here`;
   }
   if (!CFG.skills) { $("skillsrow").hidden = true; $("skillsnote").hidden = true; }
-  $("useskills").onchange = () => selectLoop(currentLoop);
+  // the switch no longer changes the prompt (the skills live in the backend), so it must not reload the prompt box
   if (STATIC) {
     for (const id of ["start", "stop", "send", "msg", "apallow", "apdeny", "apnote"]) $(id).disabled = true;
   }
@@ -208,8 +208,7 @@ function buildChain() {
 function selectLoop(loop) {
   currentLoop = loop;
   for (const b of $("loops").querySelectorAll(".step")) b.setAttribute("aria-pressed", b.dataset.loop === loop ? "true" : "false");
-  const useSkills = CFG.skills && $("useskills").checked;
-  $("prompt").value = ((useSkills ? CFG.prompts : (CFG.prompts_plain || CFG.prompts))[loop]) || "";
+  $("prompt").value = (CFG.prompts[loop]) || "";   // the team's prompt either way; the skills live in the backend
   const blocked = CFG.public && loop === "discovery";
   $("start").disabled = !!STATIC || blocked;
   $("start").textContent = blocked ? "Discovery runs with the downloadable console" : "Start run";

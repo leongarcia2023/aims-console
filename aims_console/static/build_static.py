@@ -115,7 +115,7 @@ def main():
     ap.add_argument("--runlocal-image", default=None, help="container image for the docker command, e.g. ghcr.io/owner/aims-console")
     a = ap.parse_args()
 
-    from backend.app import LOOP_FILES, MODELS, SKILLS, load_prompts, template_info, with_skill_steps
+    from backend.app import LOOP_FILES, MODELS, SKILLS, SKILLS_RULE, load_prompts, template_info
     repo = Path(a.repo).resolve()
     runs, events = run_records(Path(a.runs))
     if a.include:
@@ -131,10 +131,8 @@ def main():
         template = {k: v for k, v in template.items() if k != "path"}
         template["url"] = "data:image/jpeg;base64," + b64(buf.getvalue())
     prompts = load_prompts(repo)
-    prompts_skills = dict(prompts)
+    prompts_skills = dict(prompts)     # the team's prompts with or without the skills (the skills live in the backend)
     skills = SKILLS.is_dir()
-    if skills:
-        prompts_skills["navigation"] = with_skill_steps(prompts["navigation"])
     runlocal = None
     if a.runlocal_repo:
         repo = a.runlocal_repo.rstrip("/")
@@ -143,7 +141,7 @@ def main():
                     "docker": f"docker run --rm -p 8080:8080 {a.runlocal_image}" if a.runlocal_image else None}
     config = {"sim": a.sim, "mcp_url": a.mcp_url, "model": a.model, "runs_dir": "runs_console", "runlocal": runlocal,
               "loops": list(LOOP_FILES), "prompt_files": LOOP_FILES, "prompts": prompts_skills, "prompts_plain": prompts,
-              "static": True, "template": template, "models": MODELS, "skills": skills,
+              "static": True, "template": template, "models": MODELS, "skills": skills, "skills_rule": SKILLS_RULE,
               "skill_names": sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else []}
     data = {"config": config, "tools": tool_list(events), "runs": runs, "events": events, "note": a.note}
 

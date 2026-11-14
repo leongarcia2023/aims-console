@@ -82,8 +82,9 @@ key goes into the page and stays on your machine; the authors run no service and
 4. Paste an API key for that model's provider (Anthropic or OpenAI). It travels only to the
    local service and into that run's process; nothing writes it to disk. The browser keeps it in
    session storage until the tab closes.
-5. Leave **Recovery steps as skills** ticked to see the two recovery steps of the navigation
-   prompt run as skills (section 4), or untick it for the prompt exactly as in the paper.
+5. Leave **Recovery steps as skills** ticked to have the two recovery steps of the navigation
+   prompt carried out by skills (section 4), or untick it to leave them to the prompt's own text.
+   The prompt is the paper's either way.
 6. Press **Start run** and read section 4 for what you will see. Caps: 80 turns and 45 minutes
    per run, two runs at a time with the Docker image. The discovery loop needs file and shell
    tools and the discovery packet; the local console does not offer it (the rerun kit does).
@@ -111,10 +112,12 @@ one to two minutes per estimate.
    service caps it at 80.
    **Recovery steps as skills**: steps 3 and 7 of the team's prompt (controller off: retry the
    approach with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and predict
-   again) are conditional recoveries. Ticked, the prompt delegates them to two skills,
-   `aims-controller-recovery` and `aims-gp-recovery`, which the agent invokes when the condition
-   arises; the ledger shows `Skill aims-gp-recovery` and then the calls it makes. Unticked, the
-   prompt spells the steps out, as in the paper. Same protocol either way.
+   again) are conditional recoveries. The prompt stays as the team wrote it whether the switch
+   is on or off. Ticked, the console installs two skills, `aims-controller-recovery` and
+   `aims-gp-recovery`, for a navigation run and adds one sentence to the run's system prompt
+   saying that they carry out steps 3 and 7; the agent invokes them when it reaches those steps,
+   and the ledger shows `Skill aims-gp-recovery` and then the calls it makes. Unticked, the agent
+   follows the prompt's own text for those steps, as in the paper. Same protocol either way.
 3. Tick **Hold instrument actions for approval**. With it on, these calls pause the agent until
    you decide: `approach_and_lift`, `retract_tip`, `scan`, `move_tip`, `execute_movement`,
    `set_scan_frame`, `nanonis_xy_set`, the gate ramps and the sweepers. Analysis tools run on
@@ -272,6 +275,7 @@ Before the first hardware run:
 | The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
 | In a recorded run the stage moves further than the 100 µm the controller allows | A build of the simulator from before 2026-11-12: its stage moved 1.84 times too far in y (end of section 4). Update. |
 | In a recorded run the agent stops on a prediction with an uncertainty above 53 µm, without GP regression | A build of the console from before 2026-11-12: its operating rules said to stop when a tool reports `experiment_complete` ("When a run ends", section 4). Update. |
+| In a recorded run, steps 3 and 7 of the navigation prompt say "Use the aims-controller-recovery skill" and "Use the aims-gp-recovery skill" | A build of the console from before 2026-11-13 rewrote those two steps when the skills were on. The prompt is now the team's either way and the skills are offered by the backend (section 4). |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 
