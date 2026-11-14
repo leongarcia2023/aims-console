@@ -39,6 +39,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 IMAGE_RE = re.compile(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+")
+# what a tool call answers when the instrument's MCP server has gone away
+LOST_SERVER = re.compile(r"is not connected|Connection closed|server disconnected", re.I)
 
 # How long one MCP tool call may take. The CLI's own limit is 300 s without output, and one GP
 # regression of the team's tool takes 5 to 9 minutes on two cores, so step 7 of the navigation
@@ -92,6 +94,7 @@ class BaseRun:
         self.task: Optional[asyncio.Task] = None
         self.pending: Dict[str, asyncio.Future] = {}
         self.tool_names: Dict[str, str] = {}      # tool_use_id -> name
+        self.lost_server = 0                       # tool errors in a row that say the MCP server is gone
         self.started = time.time()
         self.result: Optional[dict] = None
         self.on_finish = []                       # callables run when the run ends (simulator teardown)
@@ -345,6 +348,22 @@ class ClaudeRun(BaseRun):
                         self.emit({"type": "tool_result", "tool_use_id": b.tool_use_id,
                                    "name": self.tool_names.get(b.tool_use_id, "?"), "text": cleaned,
                                    "images": images + more, "is_error": bool(b.is_error)})
+                        # The instrument's MCP server gone (seen 2026-11-14: a simulator killed for memory during
+                        # GP regression): the agent retried the same call until the turn cap, 68 times in one run.
+                        # Three answers in a row saying the server is not there end the run with that reason.
+                        if b.is_error and LOST_SERVER.search(cleaned or ""):
+                            self.lost_server += 1
+                        elif not b.is_error:
+                            self.lost_server = 0
+                        if self.lost_server >= 3:
+                            self.emit({"type": "error", "message": "the instrument's MCP server stopped answering (three calls "
+                                       "in a row); the run is ended here rather than retried to its cap"})
+                            self.set_state("error", "instrument lost")
+                            try:
+                                await self.client.interrupt()
+                            except Exception:
+                                pass
+                            return
             elif isinstance(msg, ResultMessage):
                 usage = getattr(msg, "usage", None)
                 self.finish({"subtype": msg.subtype, "num_turns": msg.num_turns, "duration_ms": msg.duration_ms,

@@ -93,7 +93,8 @@ exists so a reviewer can do their own runs rather than watch recorded ones:
   (OpenAI), and is never written to disk or logged (`meta.json` keeps `own_key: true`). The
   server's own credentials are stripped from the environment at startup. Runs are visible only
   to the browser that started them (a client id). Caps: `--max-turns-cap` 80,
-  `--wall-limit-min` 45, `--max-concurrent` 4. The discovery loop is not offered, since it
+  `--wall-limit-min` 45, `--max-concurrent` 4, and, with per-run simulators, one navigation run at a
+  time (`--max-navigation` 1: GP regression peaks at 5.4 GB). The discovery loop is not offered, since it
   needs file and shell tools on the server.
 * `--hosted` (or `AIMS_HOSTED=1`, with `--public`): the service keeps its own Anthropic key and a
   Claude run that brings no key uses it, within the same caps; the page then asks for no key (the

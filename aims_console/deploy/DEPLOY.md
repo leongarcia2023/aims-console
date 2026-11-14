@@ -95,7 +95,8 @@ Changing the host name or the token means rebuilding and re-pushing the page (st
   `events.jsonl` or the service log, and `meta.json` records only `own_key: true`.
 * Caps: turns (`--max-turns-cap`, 80), wall time (`--wall-limit-min`, 45; the watchdog stops the
   run and marks it), concurrent runs (`--max-concurrent`, 2; the next gets a 429 and a message to
-  try again later). In hosted mode these caps are the spend control per run; the Anthropic Console
+  try again later), of which one navigation run (`--max-navigation`, 1: one GP regression peaks at
+  5.4 GB, and two navigation runs at once lost both simulators to the memory limit on 2026-11-14). In hosted mode these caps are the spend control per run; the Anthropic Console
   limit is the spend control overall.
 * A run is visible only to the browser that started it (a random client id in that browser's
   local storage); the runs list and the WebSocket are filtered by it.

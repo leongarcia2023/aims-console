@@ -406,8 +406,9 @@ def visible(r, client: Optional[str]) -> bool:
     return bool(client) and getattr(r, "client_id", None) == client
 
 
-def live_runs() -> int:
-    return sum(1 for r in RUNS.values() if isinstance(r, BaseRun) and r.state in ("created", "connecting", "running", "awaiting_approval"))
+def live_runs(loop: Optional[str] = None) -> int:
+    return sum(1 for r in RUNS.values() if isinstance(r, BaseRun) and r.state in ("created", "connecting", "running", "awaiting_approval")
+               and (loop is None or r.loop == loop))
 
 
 @app.get("/")
@@ -473,6 +474,11 @@ async def start_run(req: StartRun):
         req.max_turns = min(req.max_turns, int(CFG["max_turns_cap"]))
         if not req.client:
             raise HTTPException(400, "missing client id")
+    if req.loop == "navigation" and CFG.get("sim_per_run") and live_runs("navigation") >= int(CFG.get("max_navigation", 1)):
+        # One GP regression of the team's tool peaks at 5.4 GB, and a simulator holds up to 1.5 GB after a position
+        # estimate. On 2026-11-14 two navigation runs at once on an 8 GB machine had two simulators killed for memory.
+        raise HTTPException(429, "a navigation run is already in progress on this console (one at a time: GP regression "
+                                 "needs about 5.4 GB); start this one when it ends, or run the measurement loop meanwhile")
     if provider == "openai" and req.loop == "discovery":
         raise HTTPException(400, "the discovery loop runs only with the Claude driver (file and shell tools)")
     if provider == "openai" and not api_key:
@@ -673,6 +679,8 @@ def main():
     ap.add_argument("--origins", default="https://leonmgarcia.com,http://127.0.0.1:8080,http://localhost:8080",
                     help="comma-separated browser origins allowed to call the API (the static page's host)")
     ap.add_argument("--max-concurrent", type=int, default=4)
+    ap.add_argument("--max-navigation", type=int, default=1,
+                    help="per-run simulators: navigation runs at a time (GP regression peaks at 5.4 GB; raise it only with 8 GB of memory per run)")
     ap.add_argument("--max-turns-cap", type=int, default=80)
     ap.add_argument("--wall-limit-min", type=float, default=45)
     ap.add_argument("--no-skills", action="store_true", help="do not offer the recovery skills (prompt rules only)")
@@ -708,7 +716,7 @@ def main():
                discovery_system_prompt=discovery_system_prompt(repo), loops=list(LOOP_FILES), prompt_files=LOOP_FILES,
                operating_rules=OPERATING_RULES, skills_rule=SKILLS_RULE, template=template_info(repo), skills=skills,
                skill_names=sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else [],
-               public=bool(a.public), hosted=bool(a.public and a.hosted), max_concurrent=a.max_concurrent,
+               public=bool(a.public), hosted=bool(a.public and a.hosted), max_concurrent=a.max_concurrent, max_navigation=a.max_navigation,
                max_turns_cap=a.max_turns_cap, wall_limit_min=a.wall_limit_min, byok=bool(a.public and not a.hosted),
                # the agent subprocess gets a scrubbed environment: credentials and proxy only
                env={k: v for k, v in os.environ.items() if k in (

@@ -88,7 +88,8 @@ key goes into the page and stays on your machine; the authors run no service and
    the paper's runs. The note under the prompt box says which prompt it is and what the console
    changed for the simulator (sections 4 and 5).
 6. Press **Start run** and read section 4 for what you will see. Caps: 80 turns and 45 minutes
-   per run, two runs at a time with the Docker image. The discovery loop needs file and shell
+   per run, two runs at a time with the Docker image, of which one navigation run (a navigation
+   run's GP regression needs about 5.4 GB). The discovery loop needs file and shell
    tools and the discovery packet; the local console does not offer it (the rerun kit does).
    **Simulator seed** sets the start position; leave it empty for a random one, or type a
    recorded run's seed to start where it started.
@@ -307,7 +308,8 @@ Before the first hardware run:
 | The run errors at once with an authentication message | The key is wrong or for the other provider. The error text is the provider's own. |
 | "wall-time limit reached" in the ledger | Public mode stops a run at 45 minutes. The log up to that point is complete. |
 | The agent waits on `run_gp_regression` and the call never returns | A build of the simulator from before 2026-11-12 computed on the server's event loop, and the client dropped the silent connection after about five minutes. Update: the tools now run in worker threads. The microscope's own server still computes on its event loop, so the same can happen there with a tool that runs longer than that. |
-| "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB (concurrent runs take turns at it). Give Docker, or the machine, 7 GB, and about 1 GB more for every further run at the same time. |
+| "MCP server is not connected" in the middle of GP regression | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB, and a simulator holds up to 1.5 GB after a position estimate; on 2026-11-14 two navigation runs at once on an 8 GB machine lost both simulators this way. Since then the console runs one navigation run at a time on per-run simulators (`--max-navigation`, 1) and ends a run whose server stops answering (three calls in a row) as "instrument lost", instead of letting the agent retry to the turn cap. Give Docker, or the machine, 7 GB. |
+| "a navigation run is already in progress on this console" | One navigation run at a time (the row above). Start it when the other ends, or run the measurement loop meanwhile. |
 | The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
 | In a recorded run the stage moves further than the 100 µm the controller allows | A build of the simulator from before 2026-11-12: its stage moved 1.84 times too far in y (end of section 4). Update. |
 | In a recorded run the agent stops on a prediction with an uncertainty above 53 µm, without GP regression | A build of the console from before 2026-11-12: its operating rules said to stop when a tool reports `experiment_complete` ("When a run ends", section 4). Update. |
