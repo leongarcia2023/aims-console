@@ -280,6 +280,15 @@ class SimNanonis:
         n = self.ids.get(series, 0) + 1
         self.ids[series] = n
         sid = f"{n:04d}"
+        # The measurement prompt names series "folder\scan", "folder\grid": on the instrument the part before the
+        # backslash is a folder. Until 2026-11-13 the simulator wrote a file called "folder\scan0001.sxm", so the
+        # analysis tools, which take a folder path, found nothing. Now a series with a folder part (relative to the
+        # session folder, or absolute) writes into that folder, created if needed.
+        if "\\" in series or "/" in series:
+            base = Path(series.replace("\\", "/"))
+            folder = base.parent if base.is_absolute() else self.session_dir / base.parent
+            folder.mkdir(parents=True, exist_ok=True)
+            return folder / f"{base.name}{sid}{ext}", sid
         return self.session_dir / f"{series}{sid}{ext}", sid
 
     def _alias(self, path: Path):
@@ -287,7 +296,11 @@ class SimNanonis:
         a file called '<dir>\\<name>' in the parent directory; keep one so the unmodified
         tools find the scan."""
         if self.posix_alias:
-            alias = self.session_dir.parent / f"{self.session_dir.name}\\{path.name}"
+            try:
+                rel = path.relative_to(self.session_dir)
+            except ValueError:
+                return                                  # an absolute folder of the operator's: no Windows-style path to mimic
+            alias = self.session_dir.parent / (self.session_dir.name + "\\" + "\\".join(rel.parts))
             try:
                 if alias.exists():
                     alias.unlink()
