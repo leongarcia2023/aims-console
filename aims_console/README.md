@@ -118,22 +118,33 @@ images back, and honours approvals, operator messages and Stop exactly like the 
 Both drivers emit the same events, so the page and the logs do not know which one ran. The
 catalog is `MODELS` in `backend/app.py`.
 
-### The two recovery skills
+### Objective only, uncertainty as skills (since 2026-11-14)
 
-Steps 3 and 7 of the team's navigation prompt are conditional recoveries (controller off:
-retry the approach with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and
-predict again). The prompt is never rewritten: with "Recovery steps as skills" ticked (the
-default), the backend copies `aims-controller-recovery` and `aims-gp-recovery`
-(`skills/*/SKILL.md`) into a navigation run's working directory as `.claude/skills/` and adds
-one sentence to the run's system prompt (`SKILLS_RULE` in `backend/app.py`) saying that they
-carry out steps 3 and 7. The skills carry the procedures. (Until 2026-11-13 the console
-replaced the two prompt lines with one-line instructions to use the skills; runs recorded
-before then, those of the navigation rule test included, show those lines in their prompt.) The Claude driver loads them through the SDK's project
-settings source and the agent invokes them with the Skill tool (visible in the ledger as
-`Skill aims-controller-recovery`); the GPT driver appends the skill texts to the system prompt,
-since the Responses API has no skill mechanism. Unticked, the agent has only the prompt's own
-text for those steps, which is the paper's configuration. Verified on 2026-11-07 in a live simulator run:
-both skills were invoked at the right steps.
+Two ways to run the navigation loop, chosen by the switch "Objective only, uncertainty as
+skills" (ticked by default):
+
+* Ticked: the prompt is `OBJECTIVE_PROMPT` in `backend/app.py`, the goal and the fixed
+  parameters of the team's prompt with no numbered steps and no rules (the goal-only arm G that
+  was prepared for the navigation rule test, plus the retracted-tip condition of the team's
+  step 4 and the template load of the console's step 0). The backend copies
+  `aims-controller-recovery` and `aims-gp-recovery` (`skills/*/SKILL.md`) into the run's working
+  directory as `.claude/skills/`. Each skill says how one uncertainty shows in the tool outputs
+  (an interrupted scan: the Z controller reads off after the scan; an uncertain estimate:
+  uncertainty above the 53 µm frame, low confidence, few markers), why it matters, and the
+  remedies. Neither the prompt nor the system prompt (`OBJECTIVE_RULES`) names a skill or a
+  step: the Claude driver loads the skills through the SDK's project settings source, the agent
+  sees them in its tool list, and it reads one with the Skill tool when it judges that the
+  situation applies (the ledger shows `Skill aims-controller-recovery`). The GPT driver appends
+  the skill texts to the system prompt, since the Responses API has no skill mechanism.
+* Unticked: the team's prompt with the rules written in as steps 3 and 7 (controller off:
+  approach again with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and
+  predict again), as in the paper's runs; no skills.
+
+History: until 2026-11-13 the console replaced steps 3 and 7 with one-line instructions to use
+the skills (the K arm of the navigation rule test); on 2026-11-13 it kept the team's prompt and
+named the skills and steps in the system prompt (`SKILLS_RULE`, kept in the code for those
+runs). The skills themselves were rewritten on 2026-11-14 from step procedures into
+descriptions of each situation and its remedies.
 
 ## What the page does
 
@@ -205,10 +216,19 @@ unmodified server (`start_server_sim.py` rebinds the name before importing `mcp_
   (-0.3 and 0.7), which the server does not find when it runs in `mcpServer/`, against the
   controller's built-in -0.28 and 0.38: every y move was 1.84 times too long. Start position:
   `--init-r` (random direction) or `--start-xy`.
+* Controller (per-run simulators of the console, since 2026-11-14): a scan with the
+  tip-retraction defect leaves the Z controller off and more lift lowers the defect rate
+  (`--couple-controller`), so step 3 of the navigation prompt has something to do, as in the
+  navigation rule test. The console passes it to every per-run simulator unless started with
+  `--no-couple-controller`.
 * Measurement: with a scan frame of 10 um or less, `scan` and `bottom_gate_ramp_and_scan`
   replay the recorded `examples/VbgScans` image nearest to the requested V_bg; the generic
   sweeper replays `examples/GridSpectra` in order; `analyze_sxm_dynamics`,
-  `analyze_twist_angle_disorder`, SSIM and GWC tools then work on real device data.
+  `analyze_twist_angle_disorder`, SSIM and GWC tools then work on real device data. A series
+  name with a folder part (`measurement\scan`) writes into that folder under the session folder,
+  and a relative folder or file in an analysis tool's arguments resolves against the session
+  folder when the server's own directory has no such path (`sim/session_paths.py`), so a
+  relative folder name works for the writer and the reader alike.
 * Ground truth (true position after every scan and move, the defect flag, the replayed file)
   goes to `sessions/sim/<stamp>/truth.jsonl` in the server directory; the agent never sees it.
   It is what an evaluation of the navigation policy against the truth needs.
@@ -226,6 +246,26 @@ session, approach, scan, image, particle filter at 126 s per prediction on 2 cor
 calculation, `execute_movement`, summary; 9 turns, $0.009 on Haiku), and a discovery run in a
 packet copy. The test evidence is in `test/` (server and console logs, `console_screenshot.png`,
 `sim_vs_real_scans.png`).
+
+### The prompts on the simulator (since 2026-11-14)
+
+On a simulator console (`--sim` or `--sim-per-run`) two prompts are adapted in the open, so that
+a run started with the defaults does what the recorded runs on the page did; a note under the
+prompt box says what changed, and `--released-prompts` shows them as released
+(`simulator_prompts` in `backend/app.py`; `CFG.prompts_released` keeps the originals):
+
+* Navigation: steps 9 and 10 stop at 150e-6m, the termination criterion of the Fig. 2 run
+  (Methods; the team confirmed it on 2026-11-12 and said a simulator test on the marker chip
+  should use it). The released prompt's 50e-6m is not met reliably on the marker chip, whose
+  centre has no marker within 42 um (MANUAL, section 4).
+* Measurement: the blanks are filled for the device data the simulator replays (recorded on
+  2026-03-14): gate 2.5 to 3.4 V in 10 steps, a 2 um x 0.5 um region, a 12 x 3 grid taken with
+  two iterations (four files per point), folder `measurement`; the hand-off field gets the
+  device's scan frame (centre 13.278, 15.615 um, 3 um, 39.8 degrees) when nothing was carried
+  over. A run with these defaults returns the published site (row 3, column 9, score 3.999).
+
+A run request may carry `seed` (the per-run simulator's seed, which sets the start position);
+the page's Simulator seed field sends it, and a recorded run's seed repeats its start.
 
 ## Merging with Siyuan's prototype
 

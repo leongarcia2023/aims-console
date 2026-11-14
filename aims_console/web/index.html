@@ -48,16 +48,18 @@
           <p class="note">The key for the chosen model's provider; the field follows the model. It goes to the console service with the run request, stays in that run's process for its duration, and is never written to the service's logs or disk. This browser keeps it in session storage until the tab closes. The service has no key of its own.</p>
         </div>
         <div class="ctl"><span class="ctl-label">Turn cap</span><input id="maxturns" type="number" value="200" min="1"><span class="note" id="turnnote"></span></div>
+        <div class="ctl" id="seedrow" hidden><span class="ctl-label">Simulator seed</span><input id="seed" type="number" min="0" step="1" placeholder="random"><span class="note">sets the start position; a recorded run's seed repeats its start</span></div>
         <label class="chk"><input id="approve" type="checkbox"> Hold instrument actions for approval</label>
         <p class="note">Stage moves, approach, scans, gate ramps and sweeps wait for the operator; analysis tools run on their own.</p>
-        <label class="chk" id="skillsrow"><input id="useskills" type="checkbox" checked> Recovery steps as skills</label>
-        <p class="note" id="skillsnote">The prompt stays as the team wrote it. Ticked, the console gives a navigation run two versioned skills that carry out steps 3 and 7 (controller-status recovery, uncertainty-triggered GP recovery) and tells the agent so in its system prompt; unticked, the agent follows the prompt's own text for those steps.</p>
+        <label class="chk" id="skillsrow"><input id="useskills" type="checkbox" checked> Objective only, uncertainty as skills</label>
+        <p class="note" id="skillsnote">Ticked, a navigation run gets only the objective and the fixed parameters, and the backend gives the agent two skills that describe how the two main uncertainties of navigation show in the data (an interrupted scan after the tip retracts, an uncertain position estimate) and what the remedies are; the agent decides when to read them. Unticked, it gets the team's prompt with those rules written in as steps 3 and 7, as in the paper's runs.</p>
 
         <h3>Hand-off note</h3>
         <p class="note">Prepended to the prompt. Carry the previous loop's final message here, edit it, then start.</p>
         <textarea id="handoff" rows="3" placeholder="None yet."></textarea>
 
         <h3>Prompt <small id="promptsrc"></small></h3>
+        <p class="note" id="promptnote" hidden></p>
         <textarea id="prompt" class="prompt" rows="18" spellcheck="false"></textarea>
         <div class="row">
           <button id="start" class="btn primary">Start run</button>

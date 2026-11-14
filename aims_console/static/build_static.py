@@ -74,8 +74,11 @@ def run_records(runs_dir: Path):
         state = states[-1]["state"] if states else "unknown"
         if state in ("running", "connecting", "awaiting_approval"):
             state = "interrupted"
+        # the run's own settings ride along, so the page shows the prompt exactly as the agent received it
         runs.append({"id": meta["id"], "loop": meta["loop"], "state": state, "model": meta.get("model"),
-                     "started": d.stat().st_mtime, "result": res})
+                     "started": d.stat().st_mtime, "result": res, "prompt": meta.get("prompt"),
+                     "handoff": meta.get("handoff"), "skills": meta.get("skills") or [],
+                     "seed": meta.get("simulator_seed"), "recorded_by": meta.get("recorded_by")})
         events[meta["id"]] = evs
     runs.sort(key=lambda r: r["started"], reverse=True)
     return runs, events
@@ -115,7 +118,8 @@ def main():
     ap.add_argument("--runlocal-image", default=None, help="container image for the docker command, e.g. ghcr.io/owner/aims-console")
     a = ap.parse_args()
 
-    from backend.app import LOOP_FILES, MODELS, SKILLS, SKILLS_RULE, load_prompts, template_info
+    from backend.app import (LOOP_FILES, MODELS, OBJECTIVE_NOTE, OBJECTIVE_RULES, SIM_HANDOFF, SIM_STOP_UM, SKILLS,
+                             SKILLS_RULE, load_prompts, objective_prompt, simulator_prompts, template_info)
     repo = Path(a.repo).resolve()
     runs, events = run_records(Path(a.runs))
     if a.include:
@@ -131,7 +135,10 @@ def main():
         template = {k: v for k, v in template.items() if k != "path"}
         template["url"] = "data:image/jpeg;base64," + b64(buf.getvalue())
     prompts = load_prompts(repo)
-    prompts_skills = dict(prompts)     # the team's prompts with or without the skills (the skills live in the backend)
+    # the team's prompts with or without the skills (the skills live in the backend); the page is a simulator page, so
+    # it shows the prompts as a simulator console does (simulator_prompts), with the note saying what changed
+    prompts_skills, prompt_notes = simulator_prompts(prompts)
+    objective_nav = objective_prompt(repo, SIM_STOP_UM)      # before repo is reused for the repository's address below
     skills = SKILLS.is_dir()
     runlocal = None
     if a.runlocal_repo:
@@ -141,6 +148,9 @@ def main():
                     "docker": f"docker run --rm -p 8080:8080 {a.runlocal_image}" if a.runlocal_image else None}
     config = {"sim": a.sim, "mcp_url": a.mcp_url, "model": a.model, "runs_dir": "runs_console", "runlocal": runlocal,
               "loops": list(LOOP_FILES), "prompt_files": LOOP_FILES, "prompts": prompts_skills, "prompts_plain": prompts,
+              "prompts_released": prompts, "prompt_notes": prompt_notes, "sim_handoff": SIM_HANDOFF, "sim_per_run": True,
+              "prompts_objective": {"navigation": objective_nav}, "objective_notes": {"navigation": OBJECTIVE_NOTE},
+              "objective_rules": OBJECTIVE_RULES,
               "static": True, "template": template, "models": MODELS, "skills": skills, "skills_rule": SKILLS_RULE,
               "skill_names": sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else []}
     data = {"config": config, "tools": tool_list(events), "runs": runs, "events": events, "note": a.note}

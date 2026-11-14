@@ -81,22 +81,145 @@ OPERATING_RULES = (
 
 TEMPLATE_DEFAULTS = {"origin_x_px": 867, "origin_y_px": 498, "height_um": 952.54}   # the prompt's load_template call; particle_filter.Config.Z_HEIGHT
 
-# With "Recovery steps as skills" on, the navigation prompt stays exactly as the team wrote it. The backend installs
-# the two skills in the run's working directory and adds this sentence to the system prompt, so the prompt never
-# names a skill. (Until 2026-11-13 the console rewrote steps 3 and 7 of the prompt into one-line instructions to use
-# the skills; runs recorded before then show those lines in their prompt.)
+# Two ways to run the navigation loop (2026-11-14):
+#  - protocol: the team's prompt, with its rules written in as numbered steps (step 3: controller off, approach
+#    again with more lift; step 7: uncertainty above 53 um, GP regression), as in the paper's runs; no skills.
+#  - objective: OBJECTIVE_PROMPT, the goal and the fixed parameters only, no steps and no rules; the backend installs
+#    the two skills (skills/aims-controller-recovery, skills/aims-gp-recovery), which describe how the two main
+#    uncertainties of navigation show in the tool outputs and what the remedies are, and the agent decides whether
+#    and when to read them. Neither the prompt nor the system prompt names a skill or a step; the agent sees the
+#    skills in its tool list, as any installed skill.
+# History: until 2026-11-13 the console rewrote steps 3 and 7 of the team's prompt into one-line instructions to use
+# the skills; on 2026-11-13 it kept the team's prompt and added SKILLS_RULE to the system prompt. Runs recorded then
+# carry those prompts in their meta.json.
 SKILLS_RULE = (
     "Two skills are installed for the navigation protocol: aims-controller-recovery carries out step 3 and "
     "aims-gp-recovery carries out step 7. When the protocol reaches one of these steps, invoke the skill for that "
     "step with the Skill tool and let it carry the step out."
+)   # not used since 2026-11-14; kept for the runs of 2026-11-13
+
+OBJECTIVE_RULES = (
+    "You are operating a microwave impedance microscope through the tools of the 'aims' MCP server. "
+    "Call one tool at a time and wait for its result before the next call. Report each step's outcome in one or "
+    "two sentences. If a tool returns an error, say what failed and decide what to do next; do not invent "
+    "measurements. When the task's end condition is met, stop and write a short summary of the final state "
+    "(position estimate and uncertainty, files produced, open issues)."
 )
 
+OBJECTIVE_PROMPT = """# Navigation task
 
-def system_prompt_for(loop: str, use_skills: bool) -> str:
-    """The system prompt of an instrument run: the operating rules, plus the skills sentence for navigation."""
-    if use_skills and loop == "navigation":
-        return OPERATING_RULES + " " + SKILLS_RULE
+Bring the tip to within {stop_um:g} um of the target, the origin of the navigation template. How you get there is up to you: choose the tools and their order yourself.
+
+What you need to know:
+- The navigation template is {template} (template_height_um 953, template_width_um 1433, origin_x_px 867, origin_y_px 498). Load it before the first position estimate.
+- A locating scan is taken after an approach with -3e-6 m as the low limit, 3e-6 m as the high limit and a 500 nm tip lift. It uses the series name "sampleLocating", 128 pixels and 40 lines, and its frame is 53 x 53 um. The position prediction takes a 256 x 256 image.
+- Stage moves use 50 V and 100 Hz for both x and y, with the tip retracted.
+- The task is done when the predicted distance from the center is smaller than {stop_um:g}e-6 m.
+
+DO NOT run any tools in parallel.
+"""
+
+
+def objective_prompt(repo: Path, stop_um: float) -> str:
+    """The objective-only navigation prompt: the goal and the fixed parameters of the team's prompt, no steps, no rules
+    (the goal-only arm G prepared for the navigation rule test on 2026-11-12, plus the retracted-tip condition of the
+    team's step 4 and the template load of the console's step 0)."""
+    return OBJECTIVE_PROMPT.format(stop_um=stop_um, template=repo / "templates" / "ArrowMarker_10x.jpg")
+
+
+def is_objective(prompt: str) -> bool:
+    """A navigation prompt in objective form (OBJECTIVE_PROMPT, possibly after a hand-off note)."""
+    body = prompt.split("\n\n", 1)[1] if prompt.startswith("Hand-off note from the previous loop") and "\n\n" in prompt else prompt
+    return body.lstrip().startswith("# Navigation task")
+
+
+def system_prompt_for(loop: str, use_skills: bool, prompt: str = "") -> str:
+    """The system prompt of an instrument run: the operating rules, in their objective form for an objective prompt.
+    It names no skill: installed skills appear in the agent's tool list."""
+    if loop == "navigation" and is_objective(prompt):
+        return OBJECTIVE_RULES
     return OPERATING_RULES
+
+
+# On the simulator the console adapts two of the team's prompts, in the open (a note under the prompt box says what
+# changed), so that a run started with the defaults does what the recorded runs on the page did. The prompts released
+# with the code are written for the microscope; CFG["prompts_released"] keeps them. (Added 2026-11-14.)
+#  - navigation: steps 9 and 10 stop at 150 um, the termination criterion of the Fig. 2 run (Methods; the team
+#    confirmed it on 2026-11-12 and said a simulator test on the marker chip should use 150 um). On the marker chip,
+#    whose centre has no marker within 42 um, a run with the released 50 um most likely ends at a cap (MANUAL, 4).
+#  - measurement: the blanks are filled to match the device data the simulator replays (recorded on 2026-03-14): gate
+#    2.5 to 3.4 V in 10 steps, a 2 um x 0.5 um region, a 12 x 3 grid taken with two iterations (so four files per
+#    point, back and forth), folder "measurement"; the hand-off note gives the device's scan frame, because a
+#    navigation run on the simulator ends on the marker chip, not on the device.
+SIM_STOP_UM = 150
+SIM_FOLDER = "measurement"
+SIM_HANDOFF = {
+    "measurement": ("Navigation brought the tip onto the device. Before step 1, set the scan frame to the device region: "
+                    "centre x = 13.278 um, y = 15.615 um, 3 um x 3 um, angle 39.8 degrees. The device is twisted MoSe2 with "
+                    "a single bottom gate (no top gate); the bottom hBN is 15 nm thick."),
+}
+SIM_NOTES = {
+    "navigation": ("Simulator: steps 9 and 10 stop at 150 µm, the termination criterion of the Fig. 2 run. The prompt released "
+                   "with the code says 50 µm; on the marker chip, whose centre has no marker within 42 µm, a run with 50 µm "
+                   "most likely ends at a cap (MANUAL, section 4). Edit the two numbers to run it as released."),
+    "measurement": ("Simulator: the blanks are filled to match the device data the simulator replays (recorded on 14 March "
+                    "2026): gate 2.5 to 3.4 V in 10 steps, a 2 µm × 0.5 µm region, a 12 × 3 grid taken with two "
+                    "iterations, so four files per point as in the example prompt of SI Fig. S15, in the folder "
+                    "\"measurement\". The hand-off note gives the "
+                    "device's scan frame, since a navigation run on the simulator ends on the marker chip."),
+}
+
+
+OBJECTIVE_NOTE = ("Objective only: the prompt gives the goal and the fixed parameters, with no steps and no rules. The "
+                  "backend gives the agent two skills, aims-controller-recovery and aims-gp-recovery, which describe how "
+                  "an interrupted scan and an uncertain position estimate show in the tool outputs and what the remedies "
+                  "are; the agent decides whether and when to read them. Untick the box for the team's prompt with the "
+                  "rules written in, as in the paper's runs.")
+
+
+def with_stop_radius(prompt: str, stop_um: float) -> str:
+    """The navigation prompt with the stop radius of steps 9 and 10 (the released prompt's two "50e-6m") changed.
+    Any other text (already changed, or edited) comes back unchanged."""
+    new = f"{stop_um:g}e-6m"
+    if new in prompt or prompt.count("50e-6m") != 2:
+        return prompt
+    return prompt.replace("50e-6m", new)
+
+
+def fill_measurement(prompt: str, folder: str = SIM_FOLDER) -> str:
+    """The measurement prompt with its blanks filled for the simulator's replayed device data. The grid step asks for
+    two iterations and the averaging for four files, as the replayed grid was taken. Any other text comes back unchanged."""
+    subs = [
+        ("start with V1, stop at V2, with V_steps.", "start with 2.5 V, stop at 3.4 V, with 10 steps."),
+        ('Use series name "folder\\scan"', f'Use series name "{folder}\\scan"'),
+        ('on sxm data in "folder". Identify a a um x b um region. Show a grid with n x m points.',
+         f'on sxm data in "{folder}". Identify a 2 um x 0.5 um region. Show a grid with 12 x 3 points.'),
+        ("Set the scan frame to the a um x b um region", "Set the scan frame to the 2 um x 0.5 um region"),
+        ('Use 10s wait and basename "folder\\grid".', f'Use 10s wait, 2 iterations and basename "{folder}\\grid".'),
+        ('on grid data in "folder". Average every 2 files for back and forth.',
+         f'on grid data in "{folder}". Average every 4 files (two iterations, back and forth).'),
+        ('Use 4 iterations and basename "folder\\bestPoint".', f'Use 4 iterations and basename "{folder}\\bestPoint".'),
+    ]
+    out = prompt
+    for old, new in subs:
+        if out.count(old) != 1:
+            return prompt
+        out = out.replace(old, new)
+    return out
+
+
+def simulator_prompts(prompts: Dict[str, str]):
+    """The prompts a simulator console shows, and a note per adapted loop (empty where a prompt is left as released)."""
+    out, notes = dict(prompts), {}
+    if "navigation" in out:
+        nav = with_stop_radius(out["navigation"], SIM_STOP_UM)
+        if nav != out["navigation"]:
+            out["navigation"], notes["navigation"] = nav, SIM_NOTES["navigation"]
+    if "measurement" in out:
+        meas = fill_measurement(out["measurement"])
+        if meas != out["measurement"]:
+            out["measurement"], notes["measurement"] = meas, SIM_NOTES["measurement"]
+    return out, notes
 
 
 def provider_for(model: str) -> str:
@@ -264,6 +387,7 @@ class StartRun(BaseModel):
     handoff: Optional[str] = None
     client: Optional[str] = None
     use_skills: bool = True
+    seed: Optional[int] = None          # the per-run simulator's seed (its start position); none = a random one
 
 
 class Approve(BaseModel):
@@ -378,7 +502,7 @@ async def start_run(req: StartRun):
         # the recovery skills are steps of the navigation protocol: offered there only, never written into the prompt
         nav_skills = use_skills and req.loop == "navigation"
         skills_dir = SKILLS if nav_skills else None
-        kw = dict(system_prompt=system_prompt_for(req.loop, nav_skills), mcp_url=None if per_run else str(CFG["mcp_url"]), cwd=None,
+        kw = dict(system_prompt=system_prompt_for(req.loop, nav_skills, req.prompt), mcp_url=None if per_run else str(CFG["mcp_url"]), cwd=None,
                   approve=req.approve, approve_tools=None, tools_mode="mcp", skills_dir=skills_dir,
                   extra_meta={"provider": provider}, **common)
         if provider == "openai":
@@ -391,9 +515,10 @@ async def start_run(req: StartRun):
         run.cwd = str(work)
         if per_run:
             simdir = run.dir / "sim"
+            seed = req.seed if req.seed is not None and 0 <= req.seed < 2 ** 31 else None
             sim = SimServer(sim_script=Path(str(CFG["sim_script"])), mcp_dir=Path(str(CFG["mcp_dir"])), sessions_dir=simdir / "sessions",
-                            log_path=simdir / "sim_server.log", python=os.environ.get("PYTHON") or None,
-                            p_defect=float(CFG.get("p_defect", 0.3)), extra_args=sim_args())
+                            log_path=simdir / "sim_server.log", python=os.environ.get("PYTHON") or None, seed=seed,
+                            p_defect=float(CFG.get("p_defect", 0.3)), extra_args=sim_args() + ["--agent-cwd", str(work)])
             try:
                 await sim.start()
             except Exception as e:  # noqa: BLE001
@@ -403,7 +528,9 @@ async def start_run(req: StartRun):
                 RUNS[run.id] = run
                 raise HTTPException(503, f"could not start a simulated instrument for this run: {e}")
             run.mcp_url = sim.url
-            run.update_meta(mcp_url=sim.url, simulator_seed=sim.seed, simulator_port=sim.port)
+            run.update_meta(mcp_url=sim.url, simulator_seed=sim.seed, simulator_port=sim.port, p_defect=sim.p_defect,
+                            couple_controller=bool(CFG.get("couple_controller")), skills=install_names(skills_dir),
+                            handoff=req.handoff or None)
             run.on_finish.append(sim.stop)
     RUNS[run.id] = run
     await run.start()
@@ -488,7 +615,18 @@ def sim_args() -> List[str]:
         # One GP regression peaks at about 5.4 GB. The per-run simulators share this lock
         # file, so only one regression computes at a time across the console's runs (threaded_tools.py).
         args += ["--heavy-lock", str(Path(str(CFG["runs_dir"])) / ".heavy_tools.lock")]
+    if CFG.get("couple_controller"):
+        # a scan with the tip-retraction defect leaves the Z controller off, so step 3 of the navigation prompt (or the
+        # aims-controller-recovery skill) has something to do, as in the navigation rule test and the page's run
+        args.append("--couple-controller")
     return args
+
+
+def install_names(skills_dir: Optional[Path]) -> List[str]:
+    """The skills a run gets, by name (none when the skills are off or the loop has none)."""
+    if not skills_dir or not skills_dir.is_dir():
+        return []
+    return sorted(p.name for p in skills_dir.iterdir() if (p / "SKILL.md").exists())
 
 
 async def prime_tools_cache():
@@ -538,6 +676,11 @@ def main():
     ap.add_argument("--max-turns-cap", type=int, default=80)
     ap.add_argument("--wall-limit-min", type=float, default=45)
     ap.add_argument("--no-skills", action="store_true", help="do not offer the recovery skills (prompt rules only)")
+    ap.add_argument("--no-couple-controller", action="store_true",
+                    help="per-run simulators: a scan with the tip-retraction defect leaves the Z controller on (the default "
+                         "before 2026-11-14), so step 3 of the navigation prompt never has anything to do")
+    ap.add_argument("--released-prompts", action="store_true",
+                    help="on the simulator, show the prompts exactly as released (50 um stop, measurement blanks unfilled)")
     ap.add_argument("--access-token", default=os.environ.get("AIMS_ACCESS_TOKEN") or None,
                     help="shared secret the page must send with every API call (or env AIMS_ACCESS_TOKEN); "
                          "build the static page with the same --token so only its password holders reach this server")
@@ -546,9 +689,17 @@ def main():
     mcp_url = a.mcp_url or (None if a.sim_per_run else "http://localhost:8000/sse")
     prompts = load_prompts(repo)
     skills = not a.no_skills and SKILLS.is_dir()
-    # the prompts are the team's whether or not the skills are on (prompts_plain is kept for pages built before 2026-11-13)
-    prompts_skills = dict(prompts)
-    CFG.update(repo=str(repo), mcp_url=mcp_url, sim=bool(a.sim or a.sim_per_run or os.environ.get("AIMS_SIM") == "1"),
+    sim = bool(a.sim or a.sim_per_run or os.environ.get("AIMS_SIM") == "1")
+    # the prompts are the team's whether or not the skills are on (prompts_plain is kept for pages built before
+    # 2026-11-13); on the simulator two of them are adapted in the open (simulator_prompts, SIM_NOTES)
+    shown, notes = simulator_prompts(prompts) if sim and not a.released_prompts else (dict(prompts), {})
+    prompts_skills = shown
+    CFG.update(prompts_released=prompts, prompt_notes=notes, objective_rules=OBJECTIVE_RULES,
+               prompts_objective={"navigation": objective_prompt(repo, SIM_STOP_UM if sim and not a.released_prompts else 50)},
+               objective_notes={"navigation": OBJECTIVE_NOTE},
+               sim_handoff=SIM_HANDOFF if sim and not a.released_prompts else {},
+               couple_controller=bool(a.sim_per_run and not a.no_couple_controller))
+    CFG.update(repo=str(repo), mcp_url=mcp_url, sim=sim,
                sim_per_run=bool(a.sim_per_run), mcp_dir=str(Path(a.mcp_dir).resolve() if a.mcp_dir else repo / "mcpServer"),
                sim_script=str(ROOT / "sim" / "start_server_sim.py"), p_defect=a.p_defect,
                examples=str(Path(a.examples).resolve() if a.examples else repo / "examples"),

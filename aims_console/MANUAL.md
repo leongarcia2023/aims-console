@@ -13,7 +13,7 @@ is laid out in six numbered sections.
 | Section | What it is |
 | --- | --- |
 | 01 Loop | The three loops as a chain: Navigation, Measurement, Discovery, with a hand-off arrow between them. Click a step to select it; its prompt loads into the Prompt box. |
-| 02 Settings | Model (the study's models and a free field), API keys when the service asks for them, turn cap, the approval switch, the recovery-skills switch, the hand-off note, the prompt, Start and Stop. |
+| 02 Settings | Model (the study's models and a free field), API keys when the service asks for them, turn cap, the simulator seed, the approval switch, the objective-and-skills switch, the hand-off note, the prompt, Start and Stop. |
 | 03 Run record | The ledger of the selected run: agent text, each tool call with its arguments, each result with its images, operator decisions, the final result. New events append at the bottom. |
 | 04 Instrument | What the instrument is doing, read from the tool results: the stage map, six tiles, the latest image, the final message. |
 | 05 Runs | Every run on record, newest first. Click one to open its ledger; finished runs replay from their log. |
@@ -25,8 +25,8 @@ move happens on the microscope.
 
 A copy of the page exists at `leonmgarcia.com/AIMS` (password from León). When its console
 service is up, it runs the navigation and measurement loops on a simulated instrument with your
-own API key (section 3). When the service is down, it replays four recorded simulator runs at
-about fifteen times speed, and Start, Stop, Send and Allow/Deny do nothing.
+own API key (section 3). When the service is down, it replays three recorded runs, one per
+loop, at about fifteen times speed, and Start, Stop, Send and Allow/Deny do nothing.
 
 ## 2. Setting up
 
@@ -82,14 +82,19 @@ key goes into the page and stays on your machine; the authors run no service and
 4. Paste an API key for that model's provider (Anthropic or OpenAI). It travels only to the
    local service and into that run's process; nothing writes it to disk. The browser keeps it in
    session storage until the tab closes.
-5. Leave **Recovery steps as skills** ticked to have the two recovery steps of the navigation
-   prompt carried out by skills (section 4), or untick it to leave them to the prompt's own text.
-   The prompt is the paper's either way.
+5. Leave **Objective only, uncertainty as skills** ticked to give a navigation run only the
+   objective, with the recovery knowledge in two skills that the agent reads when it recognizes
+   the situation (section 4), or untick it for the team's prompt with the rules written in, as in
+   the paper's runs. The note under the prompt box says which prompt it is and what the console
+   changed for the simulator (sections 4 and 5).
 6. Press **Start run** and read section 4 for what you will see. Caps: 80 turns and 45 minutes
    per run, two runs at a time with the Docker image. The discovery loop needs file and shell
    tools and the discovery packet; the local console does not offer it (the rerun kit does).
+   **Simulator seed** sets the start position; leave it empty for a random one, or type a
+   recorded run's seed to start where it started.
 
-The page at `leonmgarcia.com/AIMS` (password from León) replays four recorded runs and carries
+The page at `leonmgarcia.com/AIMS` (password from León) replays three recorded runs, one per
+loop, and shows each run's own prompt while it replays. It carries
 the same two commands; its service field is preset to `http://127.0.0.1:8080`, so it can also
 drive a console running on your machine if your browser allows a page served over HTTPS to
 talk to localhost (Chrome and Firefox do; if yours refuses, `http://localhost:8080` serves the
@@ -103,21 +108,34 @@ one to two minutes per estimate.
 
 ## 4. First run: navigation in simulation
 
-1. Click **Navigation** in the chain. The prompt box fills with the team's
-   `prompts/Navigation loop prompt.md`. The console adds one line at the top, step 0, which
-   loads the template; the particle filter cannot run without it. You can edit any of the text
-   before starting; the edited text is what the agent gets and what the log keeps.
+1. Click **Navigation** in the chain. What the prompt box shows depends on the switch
+   **Objective only, uncertainty as skills** in 02 Settings (step 2).
+   Ticked (the default): the objective-only prompt, the goal (within 150 µm of the target on
+   the simulator) and the fixed parameters of the team's prompt (template, approach limits and
+   lift, scan settings, stage voltage and frequency, the end condition), with no numbered steps
+   and no rules.
+   Unticked: the team's `prompts/Navigation loop prompt.md`, with the rules written in as steps 3
+   and 7, as in the paper's runs. The console adds one line at the top, step 0, which loads the
+   template; the particle filter cannot run without it. On the simulator steps 9 and 10 say
+   150e-6m where the released prompt says 50e-6m: 150 µm is the termination criterion of the
+   Fig. 2 run, and the end of this section says why 50 µm does not suit the marker chip.
+   The note under the prompt box says which prompt it is and what the console changed. You can
+   edit any of the text before starting; the edited text is what the agent gets and what the
+   log keeps.
 2. Leave the model as it is for a first try (a small model is fine for the mechanics; the
    paper's runs used Claude Opus 4.5 here). Turn cap 200 is plenty on a lab machine; the public
    service caps it at 80.
-   **Recovery steps as skills**: steps 3 and 7 of the team's prompt (controller off: retry the
-   approach with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and predict
-   again) are conditional recoveries. The prompt stays as the team wrote it whether the switch
-   is on or off. Ticked, the console installs two skills, `aims-controller-recovery` and
-   `aims-gp-recovery`, for a navigation run and adds one sentence to the run's system prompt
-   saying that they carry out steps 3 and 7; the agent invokes them when it reaches those steps,
-   and the ledger shows `Skill aims-gp-recovery` and then the calls it makes. Unticked, the agent
-   follows the prompt's own text for those steps, as in the paper. Same protocol either way.
+   **Objective only, uncertainty as skills**: the two uncertainties that matter most in
+   navigation are an interrupted scan (the tip retracts during the scan and the Z controller
+   reads off) and an uncertain position estimate (uncertainty above the 53 µm frame, low
+   confidence, few markers). Ticked, the backend installs two skills in the run's working
+   directory, `aims-controller-recovery` and `aims-gp-recovery`, which say how each shows in
+   the tool outputs and what the remedies are (approach again with 100 nm more lift and scan
+   again; GP-reconstruct the scan, predict again and keep the smaller uncertainty). Neither the
+   prompt nor the system prompt names them: the agent sees them in its tool list, as any
+   installed skill, and decides whether and when to read them. The ledger shows
+   `Skill aims-controller-recovery` when it does. Unticked, no skills are installed and the
+   prompt's steps 3 and 7 carry the same remedies as rules.
 3. Tick **Hold instrument actions for approval**. With it on, these calls pause the agent until
    you decide: `approach_and_lift`, `retract_tip`, `scan`, `move_tip`, `execute_movement`,
    `set_scan_frame`, `nanonis_xy_set`, the gate ramps and the sweepers. Analysis tools run on
@@ -142,17 +160,22 @@ What you will see, in order:
   target. Earlier estimates stay as small dots joined by a line, so you can see the approach.
 - `calculate_movement_from_prediction`, then an approval for `execute_movement`. The Last move
   tile shows the stage steps.
-- The loop repeats until the distance is under 50 µm or the agent stops. The final message
-  appears under Final message with the turn count and cost, and the run's tag turns to
-  **finished**.
+- After a scan with the tip-retraction defect the next controller check finds the Z controller
+  off, and step 3 (or `Skill aims-controller-recovery`) approaches again with 100 nm more lift.
+- The loop repeats until the predicted distance is under the stop radius (150 µm on the
+  simulator) or the agent stops. The final message appears under Final message with the turn
+  count and cost, and the run's tag turns to **finished**.
 
 Position is the scan centre relative to the target, in µm, x to the right and y up, the
 particle filter's own convention. Uncertainty is one standard deviation. Confidence is the
 filter's own number between 0 and 1; low values are normal on the first scan.
 
 In simulation about a third of scans (`--p-defect 0.3`) carry a tip-retraction defect, rows of
-noise; the prompt's step 7 (or the aims-gp-recovery skill) then sends the image through GP regression before predicting
-again. That is the protocol working, not a fault. The simulator writes the true position after
+noise. The defect leaves the Z controller off (since 2026-11-14 the console's simulators do this
+by default, as in the navigation rule test; `--no-couple-controller` keeps it on), and more lift
+lowers the defect rate, so step 3 has something to do. A prediction from a noisy or empty scan
+comes back with a large uncertainty, and step 7 (or the aims-gp-recovery skill) then sends the
+image through GP regression before predicting again. That is the protocol working, not a fault. The simulator writes the true position after
 every scan and move to `sessions/sim/<stamp>/truth.jsonl` in the server directory; the agent
 never sees that file, so it is the yardstick for how well the loop did.
 
@@ -174,7 +197,11 @@ agent; `truth.jsonl` shows where the stage was. The radius is in steps 9 and 10 
 which the page lets you edit. The paper's Methods give 150 µm for the published navigation run
 (the team confirmed it on 2026-11-12, and that a simulator test on the marker chip should use
 150 µm), and with 150 µm the same three scripted runs end after 5 to 8 cycles, 77 to 110 µm from
-the target.
+the target. Since 2026-11-14 the console's simulator prompt says 150 µm (step 1 above). In the
+third round of the rule test (paper's model, 150 µm, the controller faults on) all six runs with
+the recovery steps stopped by themselves within 6 to 20 minutes and 43 to 66 turns, inside
+150 µm of the target; in five of them the estimate they stopped on was 100 to 226 µm from the
+tip's true position, so the stop was right by the true distance but the estimate was not.
 
 When a run ends (changed 2026-11-12). The console's operating rules, the short system prompt
 every run gets, tell the agent to stop when the protocol's end condition is met. Until
@@ -206,10 +233,19 @@ the next prompt and kept in the log with the decision. This is the manual hand-o
 describes between its automated loops; the console makes it a visible, logged step.
 
 The measurement prompt has blanks to fill before starting: the gate range `V1`, `V2` and
-`V_steps`, the `folder` name, the region size `a` × `b` and the grid `n` × `m`. Fill them in
-the prompt box. In simulation, gate scans and the grid sweep replay recorded device data
-(`examples/VbgScans`, `examples/GridSpectra`), so the images are real but do not depend on
-where the virtual tip is. The Bottom gate and Scan frame tiles follow the ramps and frames.
+`V_steps`, the `folder` name, the region size `a` × `b` and the grid `n` × `m`. On the
+microscope, fill them in the prompt box, with an absolute path for the folder. In simulation,
+gate scans and the grid sweep replay recorded device data (`examples/VbgScans`,
+`examples/GridSpectra`, recorded on 14 March 2026), so the images are real but do not depend on
+where the virtual tip is, and the console fills the blanks to match that recording: gate 2.5 to
+3.4 V in 10 steps, a 2 µm × 0.5 µm region, a 12 × 3 grid taken with two iterations (so step 5
+averages four files per point, not two, as in the example prompt of SI Fig. S15), folder
+`measurement`. A relative folder resolves
+inside the run's own session folder. If the hand-off field is empty, it gets the device's scan
+frame (centre 13.278, 15.615 µm, 3 µm, 39.8°), because a navigation run on the simulator ends on
+the marker chip, not on the device. With these defaults a run returns the site of Figs. 3f and
+3g: row 3, column 9, score 3.999, dips at ν = 0.34, 0.57 and 0.72. The Bottom gate and Scan
+frame tiles follow the ramps and frames.
 
 ## 6. The discovery loop
 
@@ -275,7 +311,11 @@ Before the first hardware run:
 | The navigation loop reaches the target and moves away again | The stop radius of the prompt against the empty centre of the marker chip, described at the end of section 4. |
 | In a recorded run the stage moves further than the 100 µm the controller allows | A build of the simulator from before 2026-11-12: its stage moved 1.84 times too far in y (end of section 4). Update. |
 | In a recorded run the agent stops on a prediction with an uncertainty above 53 µm, without GP regression | A build of the console from before 2026-11-12: its operating rules said to stop when a tool reports `experiment_complete` ("When a run ends", section 4). Update. |
-| In a recorded run, steps 3 and 7 of the navigation prompt say "Use the aims-controller-recovery skill" and "Use the aims-gp-recovery skill" | A build of the console from before 2026-11-13 rewrote those two steps when the skills were on. The prompt is now the team's either way and the skills are offered by the backend (section 4). |
+| In a recorded run, steps 3 and 7 of the navigation prompt say "Use the aims-controller-recovery skill" and "Use the aims-gp-recovery skill" | A build of the console from before 2026-11-13 rewrote those two steps when the skills were on. Since 2026-11-14 a run with the skills gets the objective-only prompt, and a run without them the team's prompt (section 4). |
+| In a recorded run the system prompt says "Two skills are installed for the navigation protocol" | A build of 2026-11-13: it kept the team's prompt with the skills on and named the skills and the steps in the system prompt. |
+| A measurement run's analysis step says the folder "is not a valid directory" | A build of the simulator from before 2026-11-14: it wrote `folder\scan0001.sxm` as one file name (fixed 2026-11-13) and resolved a relative folder against the server's directory, not the session folder (fixed 2026-11-14). Update, or give an absolute folder. |
+| A navigation run on the simulator never finds the controller off, so step 3 never does anything | A build of the console from before 2026-11-14, or one started with `--no-couple-controller`. |
+| A navigation run on the simulator circles the target until a cap | The prompt's stop radius is 50 µm (a build from before 2026-11-14, `--released-prompts`, or the numbers edited back); section 4. |
 
 ## 11. Rebuilding the page at leonmgarcia.com/AIMS
 

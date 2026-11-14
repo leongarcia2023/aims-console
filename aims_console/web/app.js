@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 let CFG = null, currentLoop = "navigation", currentRun = null, ws = null, lastFinal = "", ncalls = 0;
 let pendingApproval = null;
+let handoffDefault = "";                 // the simulator's default hand-off note, while it is unedited in the field
 /* Three ways this page can run. Same origin as the console service (the lab machine): plain fetches.
    A static copy with window.AIMS_BACKEND set (leonmgarcia.com/AIMS): every call goes to that host, and
    the browser that starts a run is the only one that sees it (a client id). A static copy with
@@ -100,7 +101,9 @@ async function init() {
     $("turnnote").textContent = `at most ${CFG.max_turns_cap} here`;
   }
   if (!CFG.skills) { $("skillsrow").hidden = true; $("skillsnote").hidden = true; }
-  // the switch no longer changes the prompt (the skills live in the backend), so it must not reload the prompt box
+  $("seedrow").hidden = !(CFG.sim_per_run || CFG.static);   // a seed only means something for a private simulator
+  // the switch chooses the navigation prompt: objective only with the skills, the team's prompt with its rules without
+  $("useskills").onchange = () => { if (currentLoop === "navigation") selectLoop(currentLoop); };
   if (STATIC) {
     for (const id of ["start", "stop", "send", "msg", "apallow", "apdeny", "apnote"]) $(id).disabled = true;
   }
@@ -208,11 +211,25 @@ function buildChain() {
 function selectLoop(loop) {
   currentLoop = loop;
   for (const b of $("loops").querySelectorAll(".step")) b.setAttribute("aria-pressed", b.dataset.loop === loop ? "true" : "false");
-  $("prompt").value = (CFG.prompts[loop]) || "";   // the team's prompt either way; the skills live in the backend
+  // navigation with the skills: the objective-only prompt (the skills carry the recovery knowledge); otherwise the
+  // team's prompt with its rules written in
+  const objective = loop === "navigation" && CFG.skills && $("useskills").checked && CFG.prompts_objective && CFG.prompts_objective.navigation;
+  $("prompt").value = objective ? CFG.prompts_objective.navigation : ((CFG.prompts[loop]) || "");
+  // on the simulator a loop that needs a hand-off note gets a default one, unless a note was carried over or typed
+  const h = $("handoff");
+  if (handoffDefault && h.value === handoffDefault) h.value = "";
+  handoffDefault = "";
+  const def = (CFG.sim_handoff || {})[loop] || "";
+  if (def && !h.value.trim()) { h.value = def; handoffDefault = def; }
+  // what the console changed in the prompt for the simulator, if anything (simulator_prompts in backend/app.py)
+  const pn = $("promptnote");
+  pn.textContent = objective ? ((CFG.objective_notes || {}).navigation || "") : ((CFG.prompt_notes || {})[loop] || "");
+  pn.hidden = !pn.textContent;
   const blocked = CFG.public && loop === "discovery";
   $("start").disabled = !!STATIC || blocked;
   $("start").textContent = blocked ? "Discovery runs with the downloadable console" : "Start run";
-  $("promptsrc").textContent = CFG.prompt_files && CFG.prompt_files[loop] ? "prompts/" + CFG.prompt_files[loop] : "";
+  $("promptsrc").textContent = objective ? "objective only (backend/app.py, OBJECTIVE_PROMPT)"
+    : (CFG.prompt_files && CFG.prompt_files[loop] ? "prompts/" + CFG.prompt_files[loop] : "");
   const ap = $("approve");
   ap.disabled = loop === "discovery";
   if (loop === "discovery") ap.checked = false;
@@ -247,9 +264,11 @@ $("start").onclick = async () => {
   const key = KEYS[provider] || "";
   if ((CFG.byok || (BACKEND && !CFG.hosted)) && !key) { note(`Enter ${provider === "openai" ? "an OpenAI" : "an Anthropic"} API key for ${model}.`); $("key_" + provider).focus(); return; }
   if (CFG.hosted && provider === "openai" && !key) { note("GPT models need your own OpenAI key here; the hosted key is an Anthropic key."); return; }
+  const seed = parseInt($("seed").value, 10);
   const body = {loop: currentLoop, prompt: $("prompt").value, model, provider, api_key: key || null,
                 max_turns: parseInt($("maxturns").value || "200", 10), approve: $("approve").checked,
-                handoff: $("handoff").value.trim() || null, client: CLIENT, use_skills: !!(CFG.skills && $("useskills").checked)};
+                handoff: $("handoff").value.trim() || null, client: CLIENT, use_skills: !!(CFG.skills && $("useskills").checked),
+                seed: Number.isInteger(seed) && seed >= 0 ? seed : null};
   $("start").disabled = true;
   const r = await api("/api/runs", {method: "POST", body: JSON.stringify(body)});
   $("start").disabled = false;
@@ -315,6 +334,8 @@ function attach(runId) {
   if (STATIC) {
     $("download").hidden = true;
     $("stop").disabled = true;
+    const rec = (STATIC.runs || []).find((x) => x.id === runId);
+    if (rec) showRunSettings(rec);
     replay(STATIC.events[runId] || []);
     return;
   }
@@ -325,6 +346,31 @@ function attach(runId) {
   ws = new WebSocket(`${proto}://${base.host}${prefix}/ws/runs/${runId}?client=${encodeURIComponent(CLIENT)}` + (TOKEN ? `&token=${encodeURIComponent(TOKEN)}` : ""));
   ws.onmessage = (m) => handle(JSON.parse(m.data));
   ws.onclose = () => {};
+}
+
+/* While a recorded run replays, the settings show that run's own: its loop, the prompt exactly as the agent received
+   it (the hand-off note at its top), whether it had the skills, and the simulator's seed. Pressing a step of the chain
+   loads the console's prompt again. */
+function showRunSettings(rec) {
+  if (rec.loop && CFG.loops.includes(rec.loop)) selectLoop(rec.loop);
+  if (!rec.prompt) return;
+  $("prompt").value = rec.prompt;
+  $("handoff").value = ""; handoffDefault = "";
+  $("promptsrc").textContent = `as run ${rec.id.slice(0, 15)} received it`;
+  const bits = [];
+  if (rec.handoff) bits.push("Its hand-off note is at the top of the prompt.");
+  if (rec.loop === "navigation") {
+    const sk = rec.skills || [];
+    $("useskills").checked = sk.length > 0;
+    bits.push(sk.length ? `Skills: ${sk.join(" and ")}.` : "No skills: the agent followed the prompt's own text for steps 3 and 7.");
+  }
+  const hasSeed = rec.seed !== null && rec.seed !== undefined;
+  $("seed").value = hasSeed ? rec.seed : "";
+  if (hasSeed) bits.push(`Simulator seed ${rec.seed}.`);
+  if (rec.recorded_by) bits.push("Recorded by " + String(rec.recorded_by).replace(/\.?$/, "."));
+  const pn = $("promptnote");
+  pn.textContent = bits.join(" ");
+  pn.hidden = !bits.length;
 }
 
 /* Replay a recorded run at roughly fifteen times its speed, with no pause longer than a second

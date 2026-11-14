@@ -58,6 +58,9 @@ def main():
     ap.add_argument("--start-xy", default=None, help="initial true position 'x,y' in um (overrides --init-r)")
     ap.add_argument("--scan-seconds", type=float, default=0.5, help="pause per simulated scan")
     ap.add_argument("--bind", default="0.0.0.0", help="interface to listen on (127.0.0.1 for per-run servers behind the console)")
+    ap.add_argument("--agent-cwd", default=None,
+                    help="the agent's working directory (the console gives it): an absolute path inside it that names "
+                         "nothing there resolves against the session folder in the analysis tools (session_paths.py)")
     ap.add_argument("--couple-controller", action="store_true",
                     help="a scan with the tip-retraction defect leaves the Z controller OFF, and more tip lift lowers "
                          "the defect probability (off by default; used by the navigation rule test)")
@@ -143,6 +146,15 @@ def main():
     import uvicorn
     from mcp_server_sse import mcp, create_starlette_app
     n_tools = len(getattr(mcp, "_tool_manager")._tools)
+    # a relative folder in an analysis tool's arguments resolves against this run's session folder (session_paths.py)
+    from session_paths import wrap_path_args
+
+    def session_dir():
+        nano = sim_hardware.SimHardwareManager._shared.get("nanonis")
+        return nano.session_dir if nano is not None else None
+    n_paths = wrap_path_args(mcp, session_dir, a.agent_cwd)
+    print(f"  relative paths in analysis tools resolve against the session folder: {n_paths} tools"
+          + (f"; so do paths inside the agent's directory {a.agent_cwd}" if a.agent_cwd else ""))
     if not a.blocking_tools:
         from threaded_tools import make_tools_threaded
         lock = str(Path(a.heavy_lock).resolve()) if a.heavy_lock else None
