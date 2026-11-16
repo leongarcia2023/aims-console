@@ -1,0 +1,247 @@
+# AIMS console
+
+A dedicated interface for the three AIMS loops, separate from any chat client. The console
+runs the navigation, measurement and discovery loops with the team's own prompts, calls the
+MCP tools directly through an agent subprocess, shows every step as it happens (tool call,
+arguments, result, images), holds instrument actions for operator approval when asked, makes
+the hand-off between loops an explicit, logged operator step, and writes a complete event log
+per run. A simulation mode runs the whole stack without the microscope.
+
+Built on the Stanford AIMS repository (`mcpServer/`, `prompts/`, `templates/`, `examples/`)
+without modifying it. `MANUAL.md` is the hands-on guide for a new user, `../REVIEWERS.md` the
+guide for editors and reviewers, and this file the technical reference.
+
+## Layout
+
+```
+aims_console/
+  sim/start_server_sim.py   the team's MCP server on a simulated instrument (same SSE endpoint)
+  sim/sim_hardware.py       virtual stage + synthetic navigation scans (.sxm) + replay of recorded gate
+                            sweeps and grid spectra; ground truth logged to the session's truth.jsonl
+  backend/app.py            FastAPI service: API, WebSocket event stream, run logs, public mode, access token
+  backend/runner.py         BaseRun (events, approvals, watchdog) and ClaudeRun (Claude Agent SDK)
+  backend/openai_runner.py  OpenAIRun: a GPT model on the same MCP tools through the Responses API
+  backend/simpool.py        one simulated MCP server per run, on a loopback port, stopped with the run
+  skills/                   aims-controller-recovery, aims-gp-recovery: the two navigation skills
+  web/index.html, app.js, style.css   the console page (no build step); web/fonts/ holds Latin Modern (GUST licence)
+  static/build_static.py    a password-gated static copy: replays recorded runs, or drives a console service (gate.html, access.js)
+  requirements.txt          console + the team's server requirements (without the hardware libraries)
+  MANUAL.md                 the user guide
+  run_console.sh            starts the service under a clean environment
+  test/smoke_sim.py         walks the instrument tools over MCP against the simulator
+```
+
+## Running
+
+Two processes: the MCP server (real or simulated) and the console.
+
+```bash
+# 1a. real instrument: the team's server as usual
+cd AIMS/mcpServer && python start_server_sse.py 8000
+# 1b. or the simulator (nothing in the repository is modified)
+python aims_console/sim/start_server_sim.py --mcp-dir AIMS/mcpServer --port 8000 --seed 0 --p-defect 0.3
+
+# 2. the console (needs the claude CLI on PATH and either ANTHROPIC_API_KEY or a signed-in CLI)
+pip install fastapi uvicorn websockets claude-agent-sdk mcp
+./aims_console/run_console.sh --repo /path/to/AIMS --mcp-url http://localhost:8000/sse [--sim] \
+    --model claude-opus-4-5 --packet /path/to/discoveryLoopPacket --port 8080
+# open http://127.0.0.1:8080
+```
+
+`run_console.sh` passes only credentials, proxy settings, PATH and the `AIMS_*` variables to
+the service, so the agent subprocesses inherit nothing else (no chat-client project context,
+memory or extra MCP servers). The service binds to 127.0.0.1; put it behind SSH or a VPN rather than on an open port, because
+approving a stage move is an instrument action.
+
+### Running it on your own machine (reviewers)
+
+`reviewer.sh` starts the console in public mode on `127.0.0.1:8080` with a virtualenv it creates
+on first use; `install.sh` is the one-line version that clones the published repository first.
+`Dockerfile` at the repository root bakes the console, the AIMS instrument code and the recorded
+example sweeps into one image (`docker run --rm -p 8080:8080 ghcr.io/leongarcia2023/aims-console`),
+built by `.github/workflows/image.yml`. Both are bring-your-own-key: the key is entered in the
+page, lives in the run's process, and is never written to disk. This is how the paper's reviewers
+are meant to run it (`../REVIEWERS.md`); nothing is hosted by the authors.
+
+### Public mode
+
+```bash
+AIMS_ACCESS_TOKEN=<secret> ./run_console.sh --repo /path/to/AIMS --examples /path/to/examples \
+    --sim-per-run --public --origins https://leonmgarcia.com --host 0.0.0.0 --port 8080
+```
+
+This is the mode `reviewer.sh` and the Docker image use. It exists so a reviewer can do their
+own runs rather than watch recorded ones:
+
+* `--sim-per-run`: every run starts its own simulated MCP server (`backend/simpool.py`) on a
+  loopback port, with its sessions under the run's directory, and stops it at the end. Runs
+  never share instrument state, and no shared server needs to be running. The simulator runs
+  the tools in worker threads (`sim/threaded_tools.py`; `--blocking-tools` on
+  `start_server_sim.py` restores the team server's behaviour), because a tool that computes on
+  the event loop for more than about five minutes loses its answer. GP regression peaks at about
+  5.4 GB, so the simulators of one console take turns at it through a lock file
+  in the runs directory (`--heavy-lock`). A tool call may take 45 minutes
+  (`AIMS_TOOL_TIMEOUT_MIN`); the CLI's own limit is 300 s. A simulator that is still computing
+  when its run ends is killed.
+* `--public`: bring your own key. The page asks for an Anthropic or OpenAI key; the key travels
+  with the run request, lives in that run's process environment (Claude) or request headers
+  (OpenAI), and is never written to disk or logged (`meta.json` keeps `own_key: true`). The
+  server's own credentials are stripped from the environment at startup. Runs are visible only
+  to the browser that started them (a client id). Caps: `--max-turns-cap` 80,
+  `--wall-limit-min` 45, `--max-concurrent` 4, and, with per-run simulators, one navigation run at a
+  time (`--max-navigation` 1: GP regression peaks at 5.4 GB). The discovery loop is not offered, since it
+  needs file and shell tools on the server.
+* `--hosted` (or `AIMS_HOSTED=1`, with `--public`): a deployment option in which the service
+  keeps its own Anthropic key and a Claude run that brings no key uses it, within the same caps.
+  Refused without an access token, since whoever reaches the service spends on that key. The
+  published page does not use it.
+* `--access-token` (or `AIMS_ACCESS_TOKEN`): a shared secret required on every API call and
+  WebSocket (`X-AIMS-Token` header, `?token=` for the socket). The static page is built with
+  the same value (`build_static.py --token`) inside its encrypted body, so only people with the
+  page's password reach the service. `/api/template` (the public template image) is exempt.
+* `--origins`: the browser origins allowed by CORS. The token, not CORS, is the lock.
+
+### Models
+
+The page offers the models of the study and a free field: Claude Opus 4.5 (navigation and
+measurement in the paper), Claude Opus 4.8 (discovery and the blinded discovery reruns), GPT-5.5
+(the paper's benchmark), Claude Opus 5.5 (the second-model check), and Sonnet and Haiku 5.5
+for cheap tries. The driver follows the provider: Claude models run through the Claude Agent
+SDK, GPT models through `backend/openai_runner.py`, which lists the MCP server's tools, hands
+them to the Responses API as function tools, executes the calls over MCP, feeds results and
+images back, and honours approvals, operator messages and Stop exactly like the Claude driver.
+Both drivers emit the same events, so the page and the logs do not know which one ran. The
+catalog is `MODELS` in `backend/app.py`. The GPT driver has been exercised against a mock of the
+Responses API and a real MCP server, not against OpenAI's API itself.
+
+### Objective only, uncertainty as skills
+
+Two ways to run the navigation loop, chosen by the switch "Objective only, uncertainty as
+skills" (ticked by default):
+
+* Ticked: the prompt is `OBJECTIVE_PROMPT` in `backend/app.py`, the goal and the fixed
+  parameters of the team's prompt with no numbered steps and no rules (with the retracted-tip
+  condition of the team's step 4 and the template load of the console's step 0). The backend copies
+  `aims-controller-recovery` and `aims-gp-recovery` (`skills/*/SKILL.md`) into the run's working
+  directory as `.claude/skills/`. Each skill says how one uncertainty shows in the tool outputs
+  (an interrupted scan: the Z controller reads off after the scan; an uncertain estimate:
+  uncertainty above the 53 µm frame, low confidence, few markers), why it matters, and the
+  remedies. Neither the prompt nor the system prompt (`OBJECTIVE_RULES`) names a skill or a
+  step: the Claude driver loads the skills through the SDK's project settings source, the agent
+  sees them in its tool list, and it reads one with the Skill tool when it judges that the
+  situation applies (the ledger shows `Skill aims-controller-recovery`). The GPT driver appends
+  the skill texts to the system prompt, since the Responses API has no skill mechanism.
+* Unticked: the team's prompt with the rules written in as steps 3 and 7 (controller off:
+  approach again with 100 nm more lift; uncertainty above 53 µm: GP-reconstruct the scan and
+  predict again), as in the paper's runs; no skills.
+
+## What the page does
+
+The page is laid out like a paper, not a dashboard: white page, Computer Modern type (Latin
+Modern, bundled in `web/fonts/` under the GUST font licence; CMU Serif is used when it is
+installed), 2 px ink rules, no rounded corners, numbered sections. Colours follow
+`plotstyle_5.mplstyle`: steel for navigation, terracotta for measurement, teal for discovery,
+rust for things that need the operator. The instrument panel draws the particle-filter
+estimate as a small plot in the same idiom (ticks in, all four spines, one-sigma ellipse,
+the scan frame as a dashed square, the target as a diamond at the origin).
+
+* The three loops are a process chain with the hand-off arrows between them; choosing a step
+  loads the team's prompt (`prompts/*.md`) with the repository paths made absolute (the server
+  resolves paths against its own working directory) and, for navigation, a step 0 that loads
+  the template, because the particle filter needs it and the team's prompt assumes it is
+  already loaded. The operator can edit the text before starting; the discovery step runs the
+  first pass in a fresh copy of the packet.
+* The stage map draws the particle-filter estimates on the navigation template itself
+  (`/api/template` serves `templates/ArrowMarker_10x.jpg`; the geometry is the one the filter
+  uses, origin pixel and height in µm, taken from the run's own `load_template` call when there
+  is one). Two views: the whole template, and a close-up around the target. Scans are shown
+  square whatever their pixel grid, because they cover a square frame.
+* Start / Stop, model and turn cap per run.
+* "Hold instrument actions for approval": calls to `move_tip`, `execute_movement`,
+  `approach_and_lift`, `retract_tip`, `scan`, the gate ramps, the sweepers, `nanonis_xy_set`
+  and `set_scan_frame` pause the agent until the operator allows or denies (with a note the
+  agent sees). Analysis tools run without a prompt. With the box unchecked the agent runs the
+  protocol unattended, as in the paper.
+* Step console: assistant text, each tool call with its arguments, each result with images
+  (scans, particle-filter plots) inline, approvals and operator messages, the final result with
+  turns and cost. The right panel tracks the latest image, the position estimate, uncertainty,
+  confidence and distance from the particle filter, the last stage move, the bottom-gate
+  voltage and the scan frame.
+* Message box: an operator message delivered as the agent's next turn.
+* Hand-off: when a loop finishes, "Use as the hand-off note for the next loop" copies its
+  final message into the hand-off field and selects the next step of the chain; the operator
+  edits the note and starts the next loop with it prepended. The note and the decision are in
+  the log.
+* Log: `runs_console/<run id>/events.jsonl` (every event with a timestamp), `meta.json` (loop,
+  prompt, model, settings), `result.json`; downloadable from the page.
+
+## How it drives the agent
+
+`backend/runner.py` uses the Claude Agent SDK (the same headless Claude Code engine the
+reruns used): the MCP server is the agent's only tool surface for navigation and measurement
+(`mcp_servers={"aims": sse}`, `strict_mcp_config`, Bash/Write/Edit/Web tools disallowed; the
+Skill tool only when the skills are on), file and shell tools only for discovery,
+`setting_sources=["project"]` only to pick up the run's own `.claude/skills`, a private HOME
+per run (nothing of the operator's account but, on the lab machine, the signed-in CLI's
+credentials), and a `can_use_tool` callback for approvals. Everything the agent sees and does
+comes back as typed messages and is turned into the event stream. `backend/openai_runner.py`
+is the second driver on the same contract, so the page and logs do not change with the model.
+
+## The simulator
+
+`sim_hardware.SimHardwareManager` replaces `hardware_connections.HardwareManager` inside the
+unmodified server (`start_server_sim.py` rebinds the name before importing `mcp_server_sse`).
+
+* Navigation: a virtual stage over the real template (`ArrowMarker_10x.jpg`, origin pixel
+  (867, 498), 0.8755 um/px). `scan` renders the 53 um MIM-like image at the true position
+  (template crop, actuator and row noise, a tip-retraction defect with probability `p_defect`)
+  and writes a genuine Nanonis `.sxm` (17 channels, both directions) that pySPM and the
+  server's `get_sxm_image`, `convert_sxm_to_png`, `run_gp_regression` and the particle filter
+  read unchanged. `move_tip` / `execute_movement` move the stage by the microns-per-step the
+  team's controller itself computes with (read from it at start-up, so a move lands where the
+  controller intends; `--stage-step-um=X,Y` sets another value, and `--stage-config` hands the
+  server the instrument's `config/stage_config.yaml`), plus actuator error. Start position:
+  `--init-r` (random direction) or `--start-xy`.
+* Controller: a scan with the tip-retraction defect leaves the Z controller off and more lift
+  lowers the defect rate (`--couple-controller`), so step 3 of the navigation prompt has
+  something to do. The console passes it to every per-run simulator unless started with
+  `--no-couple-controller`.
+* Measurement: with a scan frame of 10 um or less, `scan` and `bottom_gate_ramp_and_scan`
+  replay the recorded `examples/VbgScans` image nearest to the requested V_bg; the generic
+  sweeper replays `examples/GridSpectra` in order; `analyze_sxm_dynamics`,
+  `analyze_twist_angle_disorder`, SSIM and GWC tools then work on real device data. A series
+  name with a folder part (`measurement\scan`) writes into that folder under the session folder,
+  and a relative folder or file in an analysis tool's arguments resolves against the session
+  folder when the server's own directory has no such path (`sim/session_paths.py`), so a
+  relative folder name works for the writer and the reader alike.
+* Ground truth (true position after every scan and move, the defect flag, the replayed file)
+  goes to `sessions/sim/<stamp>/truth.jsonl` in the server directory; the agent never sees it.
+  It is what an evaluation of the navigation policy against the truth needs.
+* Not modelled: approach physics (always succeeds), acquisition time (`--scan-seconds`),
+  temperature, and any dependence of the replayed spectra on the position inside the
+  measurement frame.
+* `get_sxm_image` builds the file path with a Windows separator (`session_path + "\\name.sxm"`),
+  which on Linux and macOS is part of the file name; the simulator writes a second hard link
+  under that name so the tool finds the file.
+
+`test/smoke_sim.py` walks the instrument tools over MCP against the simulator, with no model
+(`../REVIEWERS.md`, section 3).
+
+### The prompts on the simulator
+
+On a simulator console (`--sim` or `--sim-per-run`) two prompts are adapted in the open, so that
+a run started with the defaults does what the recorded runs on the page did; a note under the
+prompt box says what changed, and `--released-prompts` shows them as released
+(`simulator_prompts` in `backend/app.py`; `CFG.prompts_released` keeps the originals):
+
+* Navigation: steps 9 and 10 stop at 150e-6m, the termination criterion of the Fig. 2 run
+  (Methods), instead of the 50e-6m of the prompt as released; the centre of the marker chip has
+  no marker within 42 um of the target, so a 50 um radius is rarely met there (MANUAL, section 4).
+* Measurement: the blanks are filled for the device data the simulator replays (recorded on
+  14 March 2026): gate 2.5 to 3.4 V in 10 steps, a 2 um x 0.5 um region, a 12 x 3 grid taken with
+  two iterations (four files per point), folder `measurement`; the hand-off field gets the
+  device's scan frame (centre 13.278, 15.615 um, 3 um, 39.8 degrees) when nothing was carried
+  over. A run with these defaults returns the published site (row 3, column 9, score 3.999).
+
+A run request may carry `seed` (the per-run simulator's seed, which sets the start position);
+the page's Simulator seed field sends it, and a recorded run's seed repeats its start.

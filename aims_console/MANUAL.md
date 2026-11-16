@@ -1,0 +1,308 @@
+# AIMS console: user guide
+
+This is the hands-on guide for someone new to the console. `README.md` covers the architecture,
+the event contract and the simulator; this file covers what to click, in what order, and what
+to expect. Read section 1, then either section 3 (the public page) or sections 2 and 4 (your own
+installation) once in simulation, then the rest as needed.
+
+## 1. What you are looking at
+
+The console is one page that runs the three AIMS loops and keeps the record of every run. It
+is laid out in six numbered sections.
+
+| Section | What it is |
+| --- | --- |
+| 01 Loop | The three loops as a chain: Navigation, Measurement, Discovery, with a hand-off arrow between them. Click a step to select it; its prompt loads into the Prompt box. |
+| 02 Settings | Model (the study's models and a free field), API keys when the service asks for them, turn cap, the simulator seed, the approval switch, the objective-and-skills switch, the hand-off note, the prompt, Start and Stop. |
+| 03 Run record | The ledger of the selected run: agent text, each tool call with its arguments, each result with its images, operator decisions, the final result. New events append at the bottom. |
+| 04 Instrument | What the instrument is doing, read from the tool results: the stage map, six tiles, the latest image, the final message. |
+| 05 Runs | Every run on record, newest first. Click one to open its ledger; finished runs replay from their log. |
+| 06 Tools on the server | The tool list the MCP server reports. If it says "server unreachable", nothing else will work (see section 10). |
+
+The tag at the top right says **SIMULATION** or **HARDWARE**. In simulation the server runs on
+a virtual stage and replayed device data; nothing moves. In hardware mode every approved stage
+move happens on the microscope.
+
+A password-protected copy of the page is at `leonmgarcia.com/AIMS` (reviewers receive the
+password through the editor). It replays four recorded runs (navigation with each of the two
+prompts, measurement and discovery) at about fifteen times speed, each with the prompt and
+settings it ran with. There Start, Stop, Send and Allow/Deny do nothing, unless the page is
+connected to a console running on your own computer (section 3).
+
+## 2. Setting up
+
+Skip this section if you only want to run the console on your own machine; section 3 is two commands.
+
+You need Python 3.11 or 3.12, a clone of the AIMS repository, and either the `claude` command line
+signed in (`npm install -g @anthropic-ai/claude-code`, then `claude login`) or an
+`ANTHROPIC_API_KEY` in the environment. Then:
+
+```bash
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r aims_console/requirements.txt     # the console and the team's server requirements, without the hardware libraries
+```
+
+Two processes run: the MCP server (real or simulated) and the console.
+
+```bash
+# A. the simulator: the team's server on a virtual instrument. Nothing in the repository is modified.
+python aims_console/sim/start_server_sim.py --mcp-dir /path/to/AIMS/mcpServer --port 8000 --seed 0 --p-defect 0.3
+
+# A'. or the real instrument, as usual
+cd /path/to/AIMS/mcpServer && python start_server_sse.py 8000
+
+# B. the console
+./aims_console/run_console.sh --repo /path/to/AIMS --mcp-url http://localhost:8000/sse --sim \
+    --model claude-opus-4-5 --packet /path/to/discoveryLoopPacket --port 8080
+```
+
+Drop `--sim` when the server is the real one. Open `http://127.0.0.1:8080`. Check three
+things: the mode tag is the one you expect, the byline names the right MCP server, and section
+06 lists about forty tools.
+
+The console binds to 127.0.0.1 only. To reach it from another machine, use an SSH tunnel
+(`ssh -L 8080:127.0.0.1:8080 labmachine`); do not put it on an open port, because approving a
+stage move is an instrument action.
+
+## 3. Run it on your own machine (reviewers start here)
+
+The console runs on your computer against a simulated instrument, on your own API key. The
+key goes into the page and stays on your machine; the authors run no service and see nothing.
+`REVIEWERS.md` at the top of the repository is the short version of this section, with the
+expected output of a first run.
+
+1. Start it. With Docker: `docker run --rm -p 8080:8080 ghcr.io/leongarcia2023/aims-console`.
+   Without Docker (git and Python 3.11 or 3.12):
+   `curl -fsSL https://raw.githubusercontent.com/leongarcia2023/aims-console/main/install.sh | bash`,
+   which clones the repository into `./aims-console-local`, creates a virtualenv and starts the
+   console (a few minutes the first time).
+2. Open `http://localhost:8080`. The note under the title says the console is public mode: each
+   run gets its own simulated instrument and runs on the key you enter.
+3. Pick a model under 02 Settings. The list is the study's models: Claude Opus 4.5 (the paper's
+   navigation and measurement loops), Claude Opus 4.8 (the discovery loop and the blinded discovery
+   reruns), GPT-5.5 (the paper's benchmark), and Sonnet and Haiku 5.5 for a cheap first try.
+   "Other" takes any model id the provider accepts.
+4. Paste an API key for that model's provider (Anthropic or OpenAI). It travels only to the
+   local service and into that run's process; nothing writes it to disk. The browser keeps it in
+   session storage until the tab closes.
+5. Leave **Objective only, uncertainty as skills** ticked to give a navigation run only the
+   objective, with the recovery knowledge in two skills that the agent reads when it recognizes
+   the situation (section 4), or untick it for the team's prompt with the rules written in, as in
+   the paper's runs. The note under the prompt box says which prompt it is and what the console
+   changed for the simulator (sections 4 and 5).
+6. Press **Start run** and read section 4 for what you will see. Caps: 80 turns and 45 minutes
+   per run, two runs at a time with the Docker image, of which one navigation run (a navigation
+   run's GP regression needs about 5.4 GB). The discovery loop needs file and shell
+   tools and the discovery packet; the local console does not offer it (the rerun kit does).
+   **Simulator seed** sets the start position; leave it empty for a random one, or type a
+   recorded run's seed to start where it started.
+
+The page at `leonmgarcia.com/AIMS` replays four recorded runs and shows each run's own prompt
+while it replays. It carries
+the same two commands; its service field is preset to `http://127.0.0.1:8080`, so it can also
+drive a console running on your machine if your browser allows a page served over HTTPS to
+talk to localhost (Chrome and Firefox do; if yours refuses, `http://localhost:8080` serves the
+same page from the local service).
+
+The cost of a run is yours and appears with the final result (the Claude driver reports it; the
+GPT driver reports token counts). With Claude Opus 4.5 a measurement run cost $0.38 to $0.62 and
+a navigation run $0.95 to $4.17 in the runs of `REVIEWERS.md`, mostly for the scan images the
+agent looks at. The particle filter runs on your machine and costs nothing in tokens, but takes
+one to three minutes per estimate.
+
+## 4. First run: navigation in simulation
+
+1. Click **Navigation** in the chain. What the prompt box shows depends on the switch
+   **Objective only, uncertainty as skills** in 02 Settings (step 2).
+   Ticked (the default): the objective-only prompt, the goal (within 150 µm of the target on
+   the simulator) and the fixed parameters of the team's prompt (template, approach limits and
+   lift, scan settings, stage voltage and frequency, the end condition), with no numbered steps
+   and no rules.
+   Unticked: the team's `prompts/Navigation loop prompt.md`, with the rules written in as steps 3
+   and 7, as in the paper's runs. The console adds one line at the top, step 0, which loads the
+   template; the particle filter cannot run without it. On the simulator steps 9 and 10 say
+   150e-6m where the released prompt says 50e-6m: 150 µm is the termination criterion of the
+   Fig. 2 run (end of this section).
+   The note under the prompt box says which prompt it is and what the console changed. You can
+   edit any of the text before starting; the edited text is what the agent gets and what the
+   log keeps.
+2. Leave the model as it is for a first try (a small model is fine for the mechanics; the
+   paper's runs used Claude Opus 4.5 here). Turn cap 200 is plenty on a lab machine; public mode caps it at 80
+   unless the console is started with `--max-turns-cap`.
+   **Objective only, uncertainty as skills**: the two uncertainties that matter most in
+   navigation are an interrupted scan (the tip retracts during the scan and the Z controller
+   reads off) and an uncertain position estimate (uncertainty above the 53 µm frame, low
+   confidence, few markers). Ticked, the backend installs two skills in the run's working
+   directory, `aims-controller-recovery` and `aims-gp-recovery`, which say how each shows in
+   the tool outputs and what the remedies are (approach again with 100 nm more lift and scan
+   again; GP-reconstruct the scan, predict again and keep the smaller uncertainty). Neither the
+   prompt nor the system prompt names them: the agent sees them in its tool list, as any
+   installed skill, and decides whether and when to read them. The ledger shows
+   `Skill aims-controller-recovery` when it does. Unticked, no skills are installed and the
+   prompt's steps 3 and 7 carry the same remedies as rules.
+3. Tick **Hold instrument actions for approval**. With it on, these calls pause the agent until
+   you decide: `approach_and_lift`, `retract_tip`, `scan`, `move_tip`, `execute_movement`,
+   `set_scan_frame`, `nanonis_xy_set`, the gate ramps and the sweepers. Analysis tools run on
+   their own. With it off the agent runs the whole protocol unattended, as in the paper.
+4. Press **Start run**. The run appears in 05 Runs and its ledger opens in 03.
+
+What you will see, in order:
+
+- A `session` row (how many tools the agent has, the MCP server status, the model).
+- `call load_template`, then its result. The stage map in 04 keeps the geometry from this call.
+- A rust callout, **Approval needed**, for `approach_and_lift`. Read the arguments, type a note
+  if you want (the agent sees it), press **Allow**. The decision and the note go into the
+  ledger as an operator row.
+- `scan`, then `get_sxm_image`: the scan appears in the ledger and under Latest image. Scans
+  cover a square frame (53 µm in the navigation loop) on a 128 × 40 pixel grid, so the page
+  shows them square, pixel for pixel; the caption gives the grid and the frame.
+- `predict_position`. The particle filter takes about two minutes per estimate on a laptop;
+  the ledger shows nothing while it runs. When it returns, the Position and Distance tiles
+  fill and the estimate is drawn on the stage map: a steel dot on the template, the one-sigma
+  ellipse around it, the scan frame as a dashed square, the target as a rust diamond at the
+  origin. **Template** shows the whole template (1433 × 953 µm); **Close-up** zooms to the
+  target. Earlier estimates stay as small dots joined by a line, so you can see the approach.
+- `calculate_movement_from_prediction`, then an approval for `execute_movement`. The Last move
+  tile shows the stage steps.
+- After a scan with the tip-retraction defect the next controller check finds the Z controller
+  off, and step 3 (or `Skill aims-controller-recovery`) approaches again with 100 nm more lift.
+- The loop repeats until the predicted distance is under the stop radius (150 µm on the
+  simulator) or the agent stops. The final message appears under Final message with the turn
+  count and cost, and the run's tag turns to **finished**.
+
+Position is the scan centre relative to the target, in µm, x to the right and y up, the
+particle filter's own convention. Uncertainty is one standard deviation. Confidence is the
+filter's own number between 0 and 1; low values are normal on the first scan.
+
+In simulation about a third of scans (`--p-defect 0.3`) carry a tip-retraction defect, rows of
+noise. The defect leaves the Z controller off (`--no-couple-controller` keeps it on), and more
+lift lowers the defect rate, so step 3 has something to do. A prediction from a noisy or empty scan
+comes back with a large uncertainty, and step 7 (or the aims-gp-recovery skill) then sends the
+image through GP regression before predicting again. That is the protocol working, not a fault. The simulator writes the true position after
+every scan and move to `sessions/sim/<stamp>/truth.jsonl` in the server directory; the agent
+never sees that file, so it is the yardstick for how well the loop did.
+
+GP regression is the slow step. One call takes 5 to 9 minutes on two cores and its memory peaks
+at about 5.4 GB, and the ledger shows nothing meanwhile. The console gives a tool call
+45 minutes (`AIMS_TOOL_TIMEOUT_MIN`), and the simulator runs its tools in worker threads so that
+the connection stays alive during a long call.
+
+The stop radius. On the simulator, steps 9 and 10 of the team's prompt and the objective prompt
+stop at 150 µm, the termination criterion of the Fig. 2 run (Methods); the prompt as released
+says 50 µm, and `--released-prompts` shows it that way. The centre of the marker chip has no
+marker within 42 µm of the target, so a 53 µm scan centred near the target shows few markers,
+and a 50 µm radius is rarely met there. `truth.jsonl` shows where the stage really was.
+
+The end of a run. The console's operating rules, the short system prompt every run gets, tell
+the agent to stop when the protocol's end condition is met. `predict_position` also reports
+`experiment_complete` when the predicted distance is under 50 µm, whatever the uncertainty; the
+console does not treat that flag as an end condition.
+
+The stage. The simulated stage moves by the microns per step that the team's controller computes
+with (read from it at start-up), so a move lands where the controller intends;
+`--stage-step-um=X,Y` on `start_server_sim.py` sets another value. The team gives −0.3 and
+0.7 µm per step for the instrument (`config/stage_config.yaml`);
+`--stage-config /path/to/AIMS/config/stage_config.yaml` hands that file to the server, so the
+controller and the simulated stage both use those values. Without it the controller uses its
+built-in −0.28 and 0.38.
+
+## 5. The hand-off, and the measurement loop
+
+When a run finishes, press **Use as the hand-off note**. The final message is copied into the
+hand-off field and the next step of the chain is selected. Edit the note: keep what the next
+loop needs (where the device is, what was found), remove the rest. The note is prepended to
+the next prompt and kept in the log with the decision. This is the manual hand-off the paper
+describes between its automated loops; the console makes it a visible, logged step.
+
+The measurement prompt has blanks to fill before starting: the gate range `V1`, `V2` and
+`V_steps`, the `folder` name, the region size `a` × `b` and the grid `n` × `m`. On the
+microscope, fill them in the prompt box, with an absolute path for the folder. In simulation,
+gate scans and the grid sweep replay recorded device data (`examples/VbgScans`,
+`examples/GridSpectra`, recorded on 14 March 2026), so the images are real but do not depend on
+where the virtual tip is, and the console fills the blanks to match that recording: gate 2.5 to
+3.4 V in 10 steps, a 2 µm × 0.5 µm region, a 12 × 3 grid taken with two iterations (so step 5
+averages four files per point, not two, as in the example prompt of SI Fig. S15), folder
+`measurement`. A relative folder resolves
+inside the run's own session folder. If the hand-off field is empty, it gets the device's scan
+frame (centre 13.278, 15.615 µm, 3 µm, 39.8°), because a navigation run on the simulator ends on
+the marker chip, not on the device. With these defaults a run returns the site of Figs. 3f and
+3g: row 3, column 9, score 3.999, dips at ν = 0.34, 0.57 and 0.72. The Bottom gate and Scan
+frame tiles follow the ramps and frames.
+
+## 6. The discovery loop
+
+Discovery does not touch the instrument. The console copies the discovery packet (`--packet`)
+into `runs_console/<run id>/packet/` and gives the agent file and shell tools there; the
+approval switch does not apply. The first pass of the protocol is what runs. Expect a long run
+(a first pass takes about forty minutes); set the turn cap to 400 and the model deliberately. Results land in the run's `packet/analysis_results/`.
+
+## 7. Talking to the agent during a run
+
+- **Send**: the message box delivers text as the agent's next turn. Use it to redirect
+  ("skip the GP regression step", "stop after the next scan").
+- **Deny** with a note: the agent gets the refusal and the note, and decides what to do next.
+- **Stop**: interrupts the agent and denies anything waiting for approval. A tool call that has
+  already reached the server finishes there; the console cannot abort a scan or a ramp in
+  progress. For that, use Nanonis itself.
+
+## 8. Where everything is written
+
+Each run has a folder under `runs_console/<run id>/`:
+
+- `events.jsonl`: every event with a timestamp (the ledger is a view of this file; the link
+  next to the run id downloads it),
+- `meta.json`: loop, prompt as sent, model, settings, hand-off note,
+- `result.json`: the final result, turns, duration, cost,
+- `packet/` for discovery runs.
+
+The MCP server writes its own session folders (`sessions/`), including the `.sxm` files and,
+in simulation, `truth.jsonl`.
+
+## 9. On the microscope
+
+Before the first hardware run:
+
+- Start the team's real server and the console without `--sim`; the tag must read HARDWARE.
+- Keep approvals on for the first runs, with someone at the instrument who can see the stage
+  and Nanonis.
+- Read every approval's arguments before allowing: the approach limits (`low_limit`,
+  `high_limit`, `tip_lift`) and the step counts of a move are the two that matter.
+- Use the paper's model for the navigation and measurement loops.
+- Stop in the console ends the agent, not a motion already commanded.
+
+## 10. When something looks wrong
+
+| Symptom | Cause and fix |
+| --- | --- |
+| 06 says "server unreachable" | The MCP server is not running or `--mcp-url` is wrong. Start it, then reload the page. |
+| `predict_position` returns "Template not loaded" | Step 0 was removed from the prompt, or the server was restarted after it ran. Put the step back, or send "load the template again" through the message box. |
+| No approval callout appears | The switch is off, or the loop is Discovery (no instrument tools there). |
+| The agent stalls after a tool call | Look at the server's terminal: the particle filter takes about two minutes, a real scan takes as long as the scan. |
+| A run is tagged **interrupted** | The console was restarted while the run was live. The ledger holds everything logged up to that point. |
+| Starting a run fails at once | The `claude` command line is not signed in or `ANTHROPIC_API_KEY` is not set in the shell that started `run_console.sh`. |
+| The page's type looks like Georgia | The bundled Latin Modern fonts did not load (served from `web/fonts/`); the page still works. |
+| Start run is disabled | No key for the chosen model's provider has been entered, or the page is in replay mode (the note under the title says). |
+| "needs its access token" | The page and the service were built with different tokens. Rebuild the page with the service's token (section 11). |
+| "runs are already in progress" | The concurrency cap (two with the Docker image, four by default). Wait a few minutes; runs end at 45 minutes at the latest. |
+| The run errors at once with an authentication message | The key is wrong or for the other provider. The error text is the provider's own. |
+| "wall-time limit reached" in the ledger | Public mode stops a run at 45 minutes. The log up to that point is complete. |
+| "MCP server is not connected" in the middle of GP regression, or a run ends as "instrument lost" | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB, and a simulator holds up to 1.5 GB after a position estimate. Give Docker, or the machine, 7 GB; the console runs one navigation run at a time on per-run simulators (`--max-navigation`, 1) and ends a run whose server stops answering (three calls in a row) as "instrument lost". |
+| "a navigation run is already in progress on this console" | One navigation run at a time (the row above). Start it when the other ends, or run the measurement loop meanwhile. |
+| A long tool call never returns on the microscope | The team's server computes on its event loop, and a client can drop a connection that stays silent for more than about five minutes. The simulator runs its tools in worker threads for that reason. |
+| The navigation loop reaches the target and moves away again | The stop radius against the empty centre of the marker chip (section 4). |
+| A recorded run's prompt or system prompt differs from what the console sends now | The console's defaults have changed since some runs were recorded. Each run's `meta.json`, and the page while it replays the run, show the prompt and system prompt that run received. |
+
+## 11. Rebuilding the page at leonmgarcia.com/AIMS
+
+```bash
+python aims_console/static/build_static.py --repo /path/to/AIMS --runs aims_console/runs_console \
+    --out /path/to/site/AIMS --password <password> --include <run ids> \
+    --runlocal-repo https://github.com/leongarcia2023/aims-console --runlocal-image ghcr.io/leongarcia2023/aims-console
+```
+
+It inlines the page, the recorded runs and the template into one document, encrypts it under
+the password (PBKDF2-SHA256, 600,000 iterations, AES-GCM), and writes the gate page beside it.
+`--runlocal-repo <url>` (and `--runlocal-image <image>`) puts the run-it-yourself commands on
+the page. `--backend` and `--token` point the page at a console service; both ride inside the
+encrypted body. Without `--password` it generates one and prints it once. `--include <run ids>`
+picks the recorded runs.
