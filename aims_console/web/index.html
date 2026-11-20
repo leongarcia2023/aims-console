@@ -26,7 +26,7 @@
     <p>The console runs on your own machine against a simulated instrument, on your own API key; the key never leaves your computer. One of:</p>
     <pre class="cmd" id="cmd_docker"></pre>
     <pre class="cmd" id="cmd_script"></pre>
-    <p class="note">Then open <code>http://localhost:8080</code>, which serves this same page connected to the local service, or press Connect above with <code>http://127.0.0.1:8080</code> to drive it from here. Source, manual and the discovery-loop rerun kit: <a id="runlocal_repo" href="#"></a>.</p>
+    <p class="note">Then open <code>http://localhost:8080</code>, which serves this same page connected to the local service<span id="connecthint">, or press Connect above with <code>http://127.0.0.1:8080</code> to drive it from here</span>. Source, manual and the discovery-loop rerun kit: <a id="runlocal_repo" href="#"></a>.</p>
   </div>
 
   <section id="loop">
@@ -100,7 +100,7 @@
         </div>
         <div id="steps" class="ledger"><p class="empty">No run selected.</p></div>
         <div class="composer">
-          <input id="msg" type="text" placeholder="Message to the agent">
+          <input id="msg" type="text" placeholder="Message to the agent (read when its current response ends)">
           <button id="send" class="btn">Send</button>
         </div>
       </section>

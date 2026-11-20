@@ -10,7 +10,9 @@ uvicorn>=0.30
 websockets>=12
 httpx>=0.27
 pydantic>=2.7,<3
-claude-agent-sdk>=0.2            # bundles the Claude Code CLI; the Claude driver needs nothing else
+claude-agent-sdk>=0.2.186,<0.3   # bundles the Claude Code CLI; the Claude driver needs nothing else. 0.2.186 is the
+                                 # version tested: its skills option and the CLI's --no-chrome keep the agent to the
+                                 # console's own tools and skills (backend/runner.py)
 mcp>=1.0,<2                      # the team's server uses mcp.server.fastmcp / mcp.server.sse (1.x API)
 Pillow>=10
 

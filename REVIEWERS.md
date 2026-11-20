@@ -195,7 +195,7 @@ file; compare it with the `predict_position` results in the run record.
   own. Off, the agent runs unattended, as in the paper.
 - *Prompt*: any edit you make is what the agent gets, and what the log keeps.
 
-**During a run**: **Send** delivers a message as the agent's next turn; **Stop** ends the agent
+**During a run**: **Send** delivers a message to the agent with its next tool result; **Stop** ends the agent
 (a tool call already on the simulator finishes there). **Between loops**: **Use as the hand-off
 note** copies a finished run's final message into the hand-off field and selects the next loop.
 
@@ -233,6 +233,11 @@ with one seed diverge as soon as their decisions do. Expect a distribution, not 
   `aims/examples/`; they do not depend on the tip position.
 - **Unchanged.** The team's MCP server and its analysis tools run as released; only the hardware
   calls under them are simulated (`aims_console/sim/`).
+- **What the agent can reach.** The instrument's MCP server and, in an objective-only navigation
+  run, the console's two skills; nothing else. The console turns off the command line's own skills
+  and its browser extension for every run. The two runs on the page recorded on 14 November predate
+  that: their first ledger row shows a browser extension connected (22 tools) beside the instrument,
+  and none of its tools was called.
 
 ## 9. Your key and your privacy
 
@@ -254,7 +259,7 @@ analytics or tracking scripts.
 | "MCP server is not connected", or the run ends as "instrument lost" | The simulated instrument ran out of memory during GP regression. Give the console 7 GB. |
 | "a navigation run is already in progress" | One navigation run at a time; start it when the other ends. |
 | "runs are already in progress" | The limit on runs at a time; wait for one to end. |
-| "wall-time limit reached", or the run ends at the turn cap | Raise the limits (section 3). |
+| "wall-time limit reached", or the run ends as stopped, "turn cap of N reached" | Raise the limits (section 3). |
 
 ## 11. Version, licence and further documentation
 

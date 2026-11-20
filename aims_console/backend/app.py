@@ -32,6 +32,7 @@ import os
 import re
 import shutil
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -338,7 +339,14 @@ def load_archive(runs_dir: Path):
                 pass
 
 
-app = FastAPI(title="AIMS console")
+@asynccontextmanager
+async def lifespan(_app):
+    if CFG.get("sim_per_run"):
+        asyncio.create_task(prime_tools_cache())      # the tool list of section 06, from one simulator started briefly
+    yield
+
+
+app = FastAPI(title="AIMS console", lifespan=lifespan)
 
 
 class AccessToken:
@@ -459,8 +467,9 @@ async def start_run(req: StartRun):
     api_key = (req.api_key or "").strip() or None
     if public:
         if req.loop == "discovery":
-            raise HTTPException(403, "the public console runs the navigation and measurement loops on the simulator; "
-                                     "the discovery loop (file and shell tools) runs with the downloadable console")
+            raise HTTPException(403, "this mode runs the navigation and measurement loops on the simulator; the "
+                                     "discovery loop gives the agent file and shell tools, which this mode does not hand out: "
+                                     "run it with the rerun kit (rerun_kit/README.md)")
         if not api_key and not (CFG.get("hosted") and provider == "anthropic"):
             raise HTTPException(400, "this console runs on your own API key: enter an Anthropic or OpenAI key"
                                 if not CFG.get("hosted") else "GPT models need your own OpenAI key here; the hosted key is an Anthropic key")
@@ -645,12 +654,6 @@ async def prime_tools_cache():
     finally:
         sim.stop()
         shutil.rmtree(sims, ignore_errors=True)
-
-
-@app.on_event("startup")
-async def _startup():
-    if CFG.get("sim_per_run"):
-        asyncio.create_task(prime_tools_cache())
 
 
 def main():

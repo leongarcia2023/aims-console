@@ -187,7 +187,9 @@ img.scan { aspect-ratio: 1 / 1; object-fit: fill; }
 .seg button:hover:not([aria-pressed="true"]) { background: var(--wash); }
 .imgbox .empty { color: var(--muted); font-size: 15px; padding: 24px 0; }
 .final { font-size: 15.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; margin-bottom: 6px; }
-.tools { font-family: var(--mono); font-size: 13px; line-height: 1.55; color: var(--muted); max-height: 220px; overflow: auto; word-break: break-word; }
+.tools { font-family: var(--mono); font-size: 13px; line-height: 1.55; color: var(--muted); word-break: break-word; }
+.tools p { margin: 0 0 10px; }
+.tools b { font-family: var(--font); font-weight: normal; color: var(--ink); }
 
 footer { color: var(--muted); font-size: 15px; padding: 26px 0 36px; margin-top: 20px; border-top: 2px solid var(--ink); }
 

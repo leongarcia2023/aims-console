@@ -91,6 +91,7 @@ class OpenAIRun(BaseRun):
         input_items: List[Any] = [{"role": "user", "content": self.prompt}]
         previous_id = None
         final_text = ""
+        capped = False
         async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0)) as client:
             while self.turns < self.max_turns:
                 if self.pending_messages:
@@ -118,6 +119,9 @@ class OpenAIRun(BaseRun):
                     elif item.get("type") == "function_call":
                         calls.append(item)
                 if not calls:
+                    if self.pending_messages:      # the operator wrote while the model was answering: it answers that next
+                        input_items = []
+                        continue
                     break
                 input_items = []
                 for c in calls:
@@ -143,8 +147,8 @@ class OpenAIRun(BaseRun):
                         input_items.append({"role": "user", "content": [{"type": "input_text", "text": f"Image returned by {name}:"}] +
                                             [{"type": "input_image", "image_url": src} for src in images[:4]]})
             else:
-                self.emit({"type": "error", "message": f"turn cap of {self.max_turns} reached"})
-        self.finish({"subtype": "success" if self.turns < self.max_turns else "error_max_turns", "num_turns": self.turns,
+                capped = True               # finish() says so and stops the run, as for the Claude driver
+        self.finish({"subtype": "error_max_turns" if capped else "success", "num_turns": self.turns,
                      "duration_ms": int((time.time() - t0) * 1000), "total_cost_usd": None, "result": final_text,
                      "is_error": False, "usage": dict(self.usage)})
 
@@ -169,9 +173,9 @@ class OpenAIRun(BaseRun):
         self.pending_messages.append(text)
         return True
 
-    async def stop(self):
-        self.deny_pending("Run stopped by the operator.")
+    async def stop(self, reason: str = "operator"):
+        self.deny_pending("Run stopped by the operator." if reason == "operator" else f"Run stopped: {reason}.")
         if self.task and not self.task.done():
             self.task.cancel()
-        if self.state not in ("finished", "error"):
-            self.set_state("stopped", "operator")
+        if self.state not in ("finished", "error", "stopped"):
+            self.set_state("stopped", reason)

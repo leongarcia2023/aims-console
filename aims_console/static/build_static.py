@@ -85,14 +85,43 @@ def run_records(runs_dir: Path):
 
 
 def tool_list(events):
-    """Tool names from the first recorded session that connected to the MCP server."""
+    """Tool names from the recorded sessions, for a page built where no simulator can be started."""
+    out, seen = [], set()
     for evs in events.values():
         for e in evs:
-            if e.get("type") == "system" and e.get("tools"):
-                names = [t.split("mcp__aims__", 1)[1] for t in e["tools"] if t.startswith("mcp__aims__")]
-                if names:
-                    return [{"name": n, "description": ""} for n in names]
-    return []
+            if e.get("type") == "system":
+                for t in e.get("tools") or []:
+                    for server in ("aims",):
+                        pre = f"mcp__{server}__"
+                        if t.startswith(pre) and t not in seen:
+                            seen.add(t)
+                            out.append({"name": t[len(pre):], "server": server, "description": ""})
+    return out
+
+
+def probe_tools(repo: Path):
+    """The tools as the console lists them in section 06 (backend/app.py, prime_tools_cache): one simulator started
+    briefly, its tools listed with their descriptions. None when no simulator starts here."""
+    import asyncio
+    import tempfile
+    from backend.simpool import SimServer
+
+    async def go(td: Path):
+        args = ["--template", str(repo / "templates" / "ArrowMarker_10x.jpg"), "--examples", str(repo / "examples")]
+        sim = SimServer(sim_script=ROOT / "sim" / "start_server_sim.py", mcp_dir=repo / "mcpServer", sessions_dir=td / "sessions",
+                        log_path=td / "sim.log", extra_args=args)
+        try:
+            await sim.start()
+            return [{"name": t.name, "server": "aims", "description": (t.description or "")[:200]} for t in await sim.list_tools()]
+        finally:
+            sim.stop()
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            return asyncio.run(go(Path(td)))
+    except Exception as e:  # noqa: BLE001
+        print(f"note: no simulator for the tool list ({type(e).__name__}: {e}); listing the recorded runs' tools")
+        return None
 
 
 def main():
@@ -139,6 +168,7 @@ def main():
     # it shows the prompts as a simulator console does (simulator_prompts), with the note saying what changed
     prompts_skills, prompt_notes = simulator_prompts(prompts)
     objective_nav = objective_prompt(repo, SIM_STOP_UM)      # before repo is reused for the repository's address below
+    tools = probe_tools(repo) or tool_list(events)
     skills = SKILLS.is_dir()
     runlocal = None
     if a.runlocal_repo:
@@ -153,7 +183,7 @@ def main():
               "objective_rules": OBJECTIVE_RULES,
               "static": True, "template": template, "models": MODELS, "skills": skills, "skills_rule": SKILLS_RULE,
               "skill_names": sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else []}
-    data = {"config": config, "tools": tool_list(events), "runs": runs, "events": events, "note": a.note}
+    data = {"config": config, "tools": tools, "runs": runs, "events": events, "note": a.note}
 
     web = ROOT / "web"
     css = (web / "style.css").read_text()

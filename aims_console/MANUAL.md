@@ -138,7 +138,9 @@ one to three minutes per estimate.
    again; GP-reconstruct the scan, predict again and keep the smaller uncertainty). Neither the
    prompt nor the system prompt names them: the agent sees them in its tool list, as any
    installed skill, and decides whether and when to read them. The ledger shows
-   `Skill aims-controller-recovery` when it does. Unticked, no skills are installed and the
+   `Skill aims-controller-recovery` when it does. They are the only skills it is offered: for
+   every run the console turns off the command line's own skills and its browser extension, so
+   an agent has the instrument's tools and, here, these two skills. Unticked, no skills are installed and the
    prompt's steps 3 and 7 carry the same remedies as rules.
 3. Tick **Hold instrument actions for approval**. With it on, these calls pause the agent until
    you decide: `approach_and_lift`, `retract_tip`, `scan`, `move_tip`, `execute_movement`,
@@ -238,8 +240,11 @@ approval switch does not apply. The first pass of the protocol is what runs. Exp
 
 ## 7. Talking to the agent during a run
 
-- **Send**: the message box delivers text as the agent's next turn. Use it to redirect
-  ("skip the GP regression step", "stop after the next scan").
+- **Send**: the message box delivers text to the agent with the result of its next tool call
+  (a GPT model gets it before its next step). If the agent is writing its final answer instead,
+  the message goes in as the next turn and the run goes on until the agent has answered it.
+  Use it to redirect ("skip the GP regression step", "stop after the next scan"). A message
+  sent after a run has ended reaches no one; the ledger says so.
 - **Deny** with a note: the agent gets the refusal and the note, and decides what to do next.
 - **Stop**: interrupts the agent and denies anything waiting for approval. A tool call that has
   already reached the server finishes there; the console cannot abort a scan or a ramp in
@@ -286,6 +291,8 @@ Before the first hardware run:
 | "runs are already in progress" | The concurrency cap (two with the Docker image, four by default). Wait a few minutes; runs end at 45 minutes at the latest. |
 | The run errors at once with an authentication message | The key is wrong or for the other provider. The error text is the provider's own. |
 | "wall-time limit reached" in the ledger | Public mode stops a run at 45 minutes. The log up to that point is complete. |
+| A run ends as **stopped**, "turn cap of N reached" | The run used all its turns. Raise the turn cap (public mode: `--max-turns-cap`). |
+| The first ledger row of a run lists more than the instrument's tools (`claude-in-chrome connected`, 59 or 60 tools) | A run recorded before 20 November 2026, on a machine with the Claude browser extension: the command line connected it, and listed its own skills beside the console's. In the runs on the page the agent called none of them. The console now turns both off. |
 | "MCP server is not connected" in the middle of GP regression, or a run ends as "instrument lost" | The machine ran out of memory and the simulator was killed. One GP regression peaks at about 5.4 GB, and a simulator holds up to 1.5 GB after a position estimate. Give Docker, or the machine, 7 GB; the console runs one navigation run at a time on per-run simulators (`--max-navigation`, 1) and ends a run whose server stops answering (three calls in a row) as "instrument lost". |
 | "a navigation run is already in progress on this console" | One navigation run at a time (the row above). Start it when the other ends, or run the measurement loop meanwhile. |
 | A long tool call never returns on the microscope | The team's server computes on its event loop, and a client can drop a connection that stays silent for more than about five minutes. The simulator runs its tools in worker threads for that reason. |

@@ -58,6 +58,41 @@ def short_name(tool: str) -> str:
     return tool.split("__")[-1] if tool.startswith("mcp__") else tool
 
 
+def skill_names(skills_dir: Optional[Path]) -> List[str]:
+    """The skills in a console skills folder, by name (a folder with a SKILL.md)."""
+    if not skills_dir or not skills_dir.is_dir():
+        return []
+    return sorted(p.name for p in skills_dir.iterdir() if (p / "SKILL.md").exists())
+
+
+_CLI_HELP: Optional[str] = None
+
+
+def cli_has(flag: str) -> bool:
+    """Whether the Claude Code CLI bundled with the installed SDK knows a flag (an older install may not)."""
+    global _CLI_HELP
+    if _CLI_HELP is None:
+        try:
+            import subprocess
+            import claude_agent_sdk
+            cli = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+            _CLI_HELP = subprocess.run([str(cli), "--help"], capture_output=True, text=True, timeout=60).stdout
+        except Exception:  # noqa: BLE001
+            _CLI_HELP = ""
+    return flag in _CLI_HELP
+
+
+def drop_credentials(run_dir: Path):
+    """The run's private HOME holds a copy of the CLI sign-in while the run runs (make_private_home); it is never kept
+    in the run's folder after the run, which is the record people copy and share."""
+    try:
+        (run_dir / "home" / ".claude" / ".credentials.json").unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
 def split_images(text: str):
     """Pull data-URI images out of a tool result so the page shows them and the log stays
     readable; the agent itself already received the full result."""
@@ -95,6 +130,7 @@ class BaseRun:
         self.pending: Dict[str, asyncio.Future] = {}
         self.tool_names: Dict[str, str] = {}      # tool_use_id -> name
         self.lost_server = 0                       # tool errors in a row that say the MCP server is gone
+        self.queued: List[str] = []                # operator messages waiting for the end of the agent's current response
         self.started = time.time()
         self.result: Optional[dict] = None
         self.on_finish = []                       # callables run when the run ends (simulator teardown)
@@ -146,7 +182,18 @@ class BaseRun:
         self.result = result
         self.emit({"type": "result", **result})
         (self.dir / "result.json").write_text(json.dumps(result, indent=1))
-        self.set_state("finished" if not result.get("is_error") else "error", str(result.get("subtype", "")))
+        subtype = str(result.get("subtype", ""))
+        if subtype == "error_max_turns":
+            # the run reached its turn cap: stopped by the console's limit, not failed (both drivers end here alike)
+            self.emit({"type": "error", "message": f"turn cap of {self.max_turns} reached; the run is stopped here"})
+            self.set_state("stopped", f"turn cap of {self.max_turns} reached")
+        elif result.get("is_error"):
+            # an error the model API reported (a wrong key, an overloaded service) comes with subtype "success":
+            # say what it was rather than "success"
+            why = subtype if subtype not in ("", "success") else (str(result.get("result") or "").strip() or "error")
+            self.set_state("error", why[:200])
+        else:
+            self.set_state("finished", subtype)
 
     # -- approvals ---------------------------------------------------------------------
     async def ask_approval(self, name: str, tool_input: dict):
@@ -186,7 +233,7 @@ class BaseRun:
         await asyncio.sleep(self.wall_limit_s)
         if self.state not in ("finished", "error", "stopped"):
             self.emit({"type": "error", "message": f"wall-time limit of {self.wall_limit_s / 60:.0f} min reached; stopping the run"})
-            await self.stop()
+            await self.stop(f"wall-time limit of {self.wall_limit_s / 60:.0f} min reached")
 
     async def _guarded(self):
         try:
@@ -205,7 +252,7 @@ class BaseRun:
     async def inject(self, text: str) -> bool:
         raise NotImplementedError
 
-    async def stop(self):
+    async def stop(self, reason: str = "operator"):
         raise NotImplementedError
 
 
@@ -256,6 +303,18 @@ class ClaudeRun(BaseRun):
         super().__init__(**kw)
         self.client = None
 
+    async def post_tool(self, input_data, tool_use_id, context):
+        """Operator messages reach the agent with the next tool result (the additional context of a PostToolUse hook),
+        so the operator can redirect a run while it runs. A message still waiting when the response ends goes in as
+        the next turn (_consume)."""
+        if not self.queued:
+            return {}
+        text = "\n\n".join(self.queued)
+        self.queued = []
+        self.set_state("running", "operator message delivered")
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                       "additionalContext": "Message from the operator, sent during this run:\n" + text}}
+
     async def can_use_tool(self, tool_name: str, tool_input: dict, context):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         ok, note = await self.ask_approval(short_name(tool_name), tool_input)
@@ -264,6 +323,7 @@ class ClaudeRun(BaseRun):
         return PermissionResultDeny(message=note or "Denied by the operator. Explain what you would do instead and wait.")
 
     def options(self):
+        from dataclasses import fields
         from claude_agent_sdk import ClaudeAgentOptions
         env = dict(self.env)
         if self.api_key:                                   # the run's own key, nothing from the server
@@ -275,16 +335,29 @@ class ClaudeRun(BaseRun):
                                   env=env, permission_mode="default")
         if self.system_prompt:
             kw["system_prompt"] = self.system_prompt
+        from claude_agent_sdk import HookMatcher
+        kw["hooks"] = {"PostToolUse": [HookMatcher(matcher=None, hooks=[self.post_tool])]}
         # Tools in allowed_tools never reach the permission callback, so with approvals on the
         # instrument tools stay out of that list and every call goes through can_use_tool, which
         # allows analysis tools at once and holds the instrument tools for the operator.
+        # The agent gets what the console gives it and nothing the CLI brings along. The CLI connects its browser
+        # extension when it finds one (22 browser tools beside the instrument's, in two runs recorded on 2026-11-14) and
+        # lists a dozen built-in skills beside the console's (code-review, claude-api, ...): --no-chrome, and the
+        # skills option restricted to the console's own (none, outside a navigation run with the skills).
+        if cli_has("--no-chrome"):
+            kw["extra_args"] = {"no-chrome": None}
+        names = skill_names(self.skills_dir)
+        filtered = "skills" in {f.name for f in fields(ClaudeAgentOptions)}
+        if filtered:
+            kw["skills"] = names
         if self.tools_mode == "mcp":
             kw["mcp_servers"] = {"aims": {"type": "sse", "url": self.mcp_url, "timeout": TOOL_TIMEOUT_MS}}
             env["MCP_TOOL_TIMEOUT"] = str(TOOL_TIMEOUT_MS)
             kw["strict_mcp_config"] = True
-            kw["allowed_tools"] = ([] if self.approve else ["mcp__aims"]) + (["Skill"] if self.skills_dir else [])
+            # with the skills option the SDK allows Skill(<name>) for exactly the console's skills
+            kw["allowed_tools"] = ([] if self.approve else ["mcp__aims"]) + (["Skill"] if names and not filtered else [])
             kw["disallowed_tools"] = ["Bash", "Write", "Edit", "WebSearch", "WebFetch", "Agent", "NotebookEdit"]
-            kw["tools"] = ["Skill"] if self.skills_dir else []      # nothing but the instrument (and the skills)
+            kw["tools"] = ["Skill"] if names else []      # nothing but the instrument (and the skills)
         else:                         # discovery: file + shell tools inside the packet
             kw["tools"] = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
             kw["allowed_tools"] = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
@@ -310,6 +383,7 @@ class ClaudeRun(BaseRun):
                 await self.client.disconnect()
             except Exception:
                 pass
+            drop_credentials(self.dir)
 
     async def _consume(self):
         from claude_agent_sdk import (AssistantMessage, ResultMessage, SystemMessage, TextBlock, ToolResultBlock,
@@ -345,6 +419,8 @@ class ClaudeRun(BaseRun):
                                         images.append(f"data:{src.get('media_type', 'image/png')};base64,{src['data']}")
                         cleaned, more = split_images(text)
                         images += self._image_files(cleaned)
+                        # the image is in the record now; its temporary path in the run's private HOME is not needed
+                        cleaned = re.sub(r"\s*\[Image: source: [^\]]+\]", " [image]", cleaned)
                         self.emit({"type": "tool_result", "tool_use_id": b.tool_use_id,
                                    "name": self.tool_names.get(b.tool_use_id, "?"), "text": cleaned,
                                    "images": images + more, "is_error": bool(b.is_error)})
@@ -365,6 +441,14 @@ class ClaudeRun(BaseRun):
                                 pass
                             return
             elif isinstance(msg, ResultMessage):
+                if self.queued and not msg.is_error and self.state not in ("finished", "error", "stopped"):
+                    # the operator wrote while the agent was answering: the message goes in now, as the next turn,
+                    # and the run goes on until the agent has answered it
+                    text = "\n\n".join(self.queued)
+                    self.queued = []
+                    self.set_state("running", "the operator's message")
+                    await self.client.query(text)
+                    continue
                 usage = getattr(msg, "usage", None)
                 self.finish({"subtype": msg.subtype, "num_turns": msg.num_turns, "duration_ms": msg.duration_ms,
                              "total_cost_usd": msg.total_cost_usd, "result": msg.result, "is_error": msg.is_error,
@@ -387,18 +471,18 @@ class ClaudeRun(BaseRun):
         return out
 
     async def inject(self, text: str):
-        """A message from the operator, delivered as the next user turn (after the current
-        response ends)."""
+        """A message from the operator: delivered with the next tool result (post_tool), or as the next turn when the
+        response ends first (_consume); the run ends only after the agent has had it. (Sent straight to the CLI, it was
+        queued there and lost when the run ended at the response's result, and a second reader of the message stream
+        left the CLI running.)"""
         if not self.client or self.state in ("finished", "error", "stopped"):
             return False
-        self.emit({"type": "operator_message", "text": text})
-        await self.client.query(text)
-        self.set_state("running")
-        asyncio.create_task(self._consume())
+        self.queued.append(text)
+        self.emit({"type": "operator_message", "text": text, "queued": True})
         return True
 
-    async def stop(self):
-        self.deny_pending("Run stopped by the operator.")
+    async def stop(self, reason: str = "operator"):
+        self.deny_pending("Run stopped by the operator." if reason == "operator" else f"Run stopped: {reason}.")
         try:
             if self.client:
                 await self.client.interrupt()
@@ -406,8 +490,8 @@ class ClaudeRun(BaseRun):
             pass
         if self.task and not self.task.done():
             self.task.cancel()
-        if self.state not in ("finished", "error"):
-            self.set_state("stopped", "operator")
+        if self.state not in ("finished", "error", "stopped"):
+            self.set_state("stopped", reason)
 
 
 # kept for callers that import the old name

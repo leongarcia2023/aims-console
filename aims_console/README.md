@@ -167,7 +167,8 @@ the scan frame as a dashed square, the target as a diamond at the origin).
   turns and cost. The right panel tracks the latest image, the position estimate, uncertainty,
   confidence and distance from the particle filter, the last stage move, the bottom-gate
   voltage and the scan frame.
-* Message box: an operator message delivered as the agent's next turn.
+* Message box: an operator message, delivered to the agent with its next tool result (or as the
+  next turn when the agent is giving its final answer).
 * Hand-off: when a loop finishes, "Use as the hand-off note for the next loop" copies its
   final message into the hand-off field and selects the next step of the chain; the operator
   edits the note and starts the next loop with it prepended. The note and the decision are in

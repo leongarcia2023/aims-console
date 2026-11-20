@@ -59,6 +59,7 @@ function el(tag, cls, text) {
 async function init() {
   let denied = "";
   try {
+    if (RECORDED && !BACKEND) throw new Error("static copy, no service set");   // replay at once, without a request that 404s
     CFG = await api("/api/config");
     if (CFG && CFG.error && /access token/.test(CFG.error)) denied = CFG.error;
     if (!CFG || !CFG.loops) throw new Error("no config");
@@ -94,8 +95,8 @@ async function init() {
   if (CFG.public) {
     const n = $("publicnote");
     n.textContent = CFG.hosted
-      ? `Every run gets its own simulated instrument, runs on the authors' API key (no key needed from you), is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. Edit the prompt or the hand-off note and press Start run. The discovery loop (file and shell tools) runs with the downloadable console.`
-      : `Public console: every run gets its own simulated instrument, runs on the API key entered below, is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. The discovery loop (file and shell tools) runs with the downloadable console.`;
+      ? `Every run gets its own simulated instrument, runs on the authors' API key (no key needed from you), is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. Edit the prompt or the hand-off note and press Start run. The discovery loop (file and shell tools) runs with the rerun kit (rerun_kit/README.md).`
+      : `Every run gets its own simulated instrument, runs on the API key entered below, is capped at ${CFG.max_turns_cap} turns and ${CFG.wall_limit_min} minutes, and is visible only in this browser. The discovery loop gives the agent file and shell tools, which this mode does not hand out; it runs with the rerun kit (rerun_kit/README.md).`;
     n.hidden = false;
     $("maxturns").value = Math.min(parseInt($("maxturns").value, 10) || 200, CFG.max_turns_cap);
     $("turnnote").textContent = `at most ${CFG.max_turns_cap} here`;
@@ -113,7 +114,18 @@ async function init() {
   setTemplate(CFG.template);
   drawStage();
   api("/api/tools").then((t) => {
-    $("tools").textContent = t.ok ? t.tools.map((x) => x.name).join(", ") : "server unreachable: " + t.error;
+    if (!t.ok) { $("tools").textContent = "server unreachable: " + t.error; return; }
+    const by = {};
+    for (const x of t.tools) (by[x.server || "aims"] = by[x.server || "aims"] || []).push(x.name);
+    const label = {aims: "The team's server (aims)"};
+    const box = $("tools");
+    box.textContent = "";
+    for (const [k, v] of Object.entries(by)) {
+      const p = el("p");
+      p.appendChild(el("b", "", `${label[k] || k}, ${v.length} tool${v.length === 1 ? "" : "s"}: `));
+      p.append(v.join(", ") + ".");
+      box.appendChild(p);
+    }
   });
 }
 
@@ -131,6 +143,7 @@ function serviceRow() {
   }
   if (rl && STATIC) {                 // replaying (no service reachable): say how to run it yourself
     $("runlocal").hidden = false;
+    $("connecthint").hidden = !!window.AIMS_BACKEND;   // a pinned service has no Connect field
     $("cmd_docker").textContent = rl.docker || "";
     $("cmd_script").textContent = rl.script || "";
     const a = $("runlocal_repo"); a.href = rl.repo; a.textContent = rl.repo.replace(/^https?:\/\//, "");
@@ -227,7 +240,7 @@ function selectLoop(loop) {
   pn.hidden = !pn.textContent;
   const blocked = CFG.public && loop === "discovery";
   $("start").disabled = !!STATIC || blocked;
-  $("start").textContent = blocked ? "Discovery runs with the downloadable console" : "Start run";
+  $("start").textContent = blocked ? "Discovery: see rerun_kit/README.md" : "Start run";
   $("promptsrc").textContent = objective ? "objective only (backend/app.py, OBJECTIVE_PROMPT)"
     : (CFG.prompt_files && CFG.prompt_files[loop] ? "prompts/" + CFG.prompt_files[loop] : "");
   const ap = $("approve");
@@ -288,7 +301,8 @@ $("msg").onkeydown = (e) => { if (e.key === "Enter") sendMessage(); };
 async function sendMessage() {
   const text = $("msg").value.trim();
   if (!text || !currentRun) return;
-  await api(`/api/runs/${currentRun}/message`, {method: "POST", body: JSON.stringify({text})});
+  const r = await api(`/api/runs/${currentRun}/message`, {method: "POST", body: JSON.stringify({text})});
+  if (r && r.ok === false) { addEvent("operator", "operator", "terra", "not sent", null, "The run has ended; a message reaches only a running agent."); return; }
   $("msg").value = "";
 }
 $("apallow").onclick = () => decide("allow");
@@ -353,6 +367,12 @@ function attach(runId) {
    loads the console's prompt again. */
 function showRunSettings(rec) {
   if (rec.loop && CFG.loops.includes(rec.loop)) selectLoop(rec.loop);
+  if (rec.model) {                    // the run's own model, not the page's "as recorded"
+    const sel = $("modelsel");
+    if ((CFG.models || []).some((m) => m.id === rec.model)) sel.value = rec.model;
+    else { sel.value = "__other__"; $("model").value = rec.model; }
+    modelChanged();
+  }
   if (!rec.prompt) return;
   $("prompt").value = rec.prompt;
   $("handoff").value = ""; handoffDefault = "";
@@ -555,6 +575,8 @@ function drawStage() {
 
 /* MCP tool replies arrive as {"result": "<json string>"}; unwrap for display. */
 function pretty(text) {
+  // the CLI's note of where it kept a returned image (a path in the run's private HOME): the image is shown anyway
+  text = text.replace(/\s*\[Image: source: [^\]]+\]/g, " [image]");
   try {
     let v = JSON.parse(text);
     if (v && typeof v.result === "string") { try { v = JSON.parse(v.result); } catch (e) { v = v.result; } }
@@ -616,7 +638,7 @@ function handle(ev) {
       if (pendingApproval === ev.approval_id) { pendingApproval = null; $("approval").hidden = true; }
       addEvent("operator", "operator", "terra", ev.decision === "allow" ? "allowed" : "denied", ev.t, ev.note || "");
       break;
-    case "operator_message": addEvent("operator", "operator", "terra", "message", ev.t, ev.text); break;
+    case "operator_message": addEvent("operator", "operator", "terra", "message", ev.t, ev.text, null, ev.queued ? "read when the agent's current response ends" : null); break;
     case "result":
       lastFinal = ev.result || "";
       $("final").textContent = lastFinal || "(no final message)";

@@ -23,12 +23,15 @@ if [ -z "$PY" ]; then
 fi
 [ -n "$PY" ] || { echo "Python 3.11 or 3.12 is needed (python3.12 or python3.11 on PATH, or PYTHON=/path/to/it). pySPM, which reads the microscope's files, does not build on newer Pythons yet."; exit 1; }
 [ -d "$REPO/mcpServer" ] || { echo "the AIMS code is not at $REPO (expected mcpServer/, prompts/, templates/, examples/); run install.sh, or set AIMS_REPO"; exit 1; }
-if [ ! -f "$HERE/.venv/.installed" ]; then   # the stamp, not the interpreter: an interrupted install is redone
-  echo "== creating .venv and installing the requirements (once)"
-  "$PY" -m venv "$HERE/.venv"
+# The stamp holds the checksum of requirements.txt: an interrupted install is redone, and so is one made from an
+# earlier requirements.txt (a console updated with git pull gets the versions it was tested with).
+REQ_SUM="$(cksum < "$HERE/requirements.txt")"
+if [ "$(cat "$HERE/.venv/.installed" 2>/dev/null)" != "$REQ_SUM" ]; then
+  echo "== installing the requirements into .venv (first run, or requirements.txt changed)"
+  [ -x "$HERE/.venv/bin/python" ] || "$PY" -m venv "$HERE/.venv"
   "$HERE/.venv/bin/pip" install -q --upgrade pip
   "$HERE/.venv/bin/pip" install -q -r "$HERE/requirements.txt"
-  touch "$HERE/.venv/.installed"
+  echo "$REQ_SUM" > "$HERE/.venv/.installed"
 fi
 EXAMPLES="$REPO/examples"
 [ -d "$EXAMPLES/VbgScans" ] || echo "note: $EXAMPLES has no VbgScans/GridSpectra; navigation runs work, measurement runs will find no recorded sweeps"
@@ -38,7 +41,7 @@ OPENER=xdg-open; [ "$(uname)" = Darwin ] && OPENER=open   # on Linux, "open" can
 # a clean environment: nothing of this shell reaches the agent processes except the path, the
 # locale, proxy settings and the console's own AIMS_* switches (AIMS_OPENAI_URL for tests)
 KEEP=(HOME="$HOME" PATH="$HERE/.venv/bin:$PATH" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}")
-for v in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy SSL_CERT_FILE REQUESTS_CA_BUNDLE AIMS_OPENAI_URL AIMS_SIM; do
+for v in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy SSL_CERT_FILE REQUESTS_CA_BUNDLE NODE_EXTRA_CA_CERTS AIMS_OPENAI_URL AIMS_SIM; do
   eval "val=\${$v:-}"; [ -n "$val" ] && KEEP+=("$v=$val")
 done
 cd "$HERE"   # backend.app is imported relative to the working directory; install.sh runs this from elsewhere
