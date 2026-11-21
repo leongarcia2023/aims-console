@@ -84,6 +84,18 @@ def run_records(runs_dir: Path):
     return runs, events
 
 
+def neutral_paths(obj, root: Path):
+    """`obj` with the build machine's path to the repository written as "AIMS/" (in strings, dicts and lists)."""
+    prefix = str(root).rstrip("/") + "/"
+    if isinstance(obj, str):
+        return obj.replace(prefix, "AIMS/")
+    if isinstance(obj, dict):
+        return {k: neutral_paths(v, root) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [neutral_paths(v, root) for v in obj]
+    return obj
+
+
 def tool_list(events):
     """Tool names from the recorded sessions, for a page built where no simulator can be started."""
     out, seen = [], set()
@@ -150,6 +162,7 @@ def main():
     from backend.app import (LOOP_FILES, MODELS, OBJECTIVE_NOTE, OBJECTIVE_RULES, SIM_HANDOFF, SIM_STOP_UM, SKILLS,
                              SKILLS_RULE, load_prompts, objective_prompt, simulator_prompts, template_info)
     repo = Path(a.repo).resolve()
+    repo_path = repo
     runs, events = run_records(Path(a.runs))
     if a.include:
         runs = [r for r in runs if r["id"] in a.include]
@@ -183,6 +196,10 @@ def main():
               "objective_rules": OBJECTIVE_RULES,
               "static": True, "template": template, "models": MODELS, "skills": skills, "skills_rule": SKILLS_RULE,
               "skill_names": sorted(p.name for p in SKILLS.iterdir() if (p / "SKILL.md").exists()) if skills else []}
+    # the prompts name files by their path on the machine that built the page; a visitor's console fills in its own, so
+    # the page shows them under the repository's name ("AIMS/templates/..."). The recorded runs keep theirs.
+    for k in ("prompts", "prompts_plain", "prompts_released", "prompts_objective", "prompt_notes", "objective_notes", "sim_handoff"):
+        config[k] = neutral_paths(config.get(k), repo_path)
     data = {"config": config, "tools": tools, "runs": runs, "events": events, "note": a.note}
 
     web = ROOT / "web"

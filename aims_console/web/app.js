@@ -171,8 +171,13 @@ function buildModels() {
     sel.appendChild(og);
   }
   const o = document.createElement("option"); o.value = "__other__"; o.textContent = "Another model id"; sel.appendChild(o);
-  sel.value = models.some((m) => m.id === CFG.model) ? CFG.model : "__other__";
-  if (sel.value === "__other__") $("model").value = CFG.model;
+  if (STATIC) {                       // a recorded run shows its own model when picked
+    const r = document.createElement("option"); r.value = ""; r.textContent = "As recorded: each run's own"; sel.insertBefore(r, sel.firstChild);
+    sel.value = "";
+  } else {
+    sel.value = models.some((m) => m.id === CFG.model) ? CFG.model : "__other__";
+    if (sel.value === "__other__") $("model").value = CFG.model;
+  }
   sel.onchange = modelChanged;
   $("model").oninput = modelChanged;
   modelChanged();
@@ -182,7 +187,8 @@ function modelChanged() {
   const sel = $("modelsel"), other = sel.value === "__other__";
   $("modelfree").hidden = !other;
   const m = (CFG.models || []).find((x) => x.id === sel.value);
-  $("modelnote").textContent = m ? `${m.label}: ${m.study}.` : "Provider is read from the id (gpt- for OpenAI, otherwise Anthropic).";
+  $("modelnote").textContent = sel.value === "" ? "Pick a run under Runs to see the model it ran on."
+    : (m ? `${m.label}: ${m.study}.` : "Provider is read from the id (gpt- for OpenAI, otherwise Anthropic).");
   // only the chosen model's provider needs a key; the other field stays filled but out of the way
   const provider = providerOf(chosenModel());
   for (const p of ["anthropic", "openai"]) $("key_" + p).closest(".ctl").hidden = p !== provider;
@@ -238,6 +244,8 @@ function selectLoop(loop) {
   const pn = $("promptnote");
   pn.textContent = objective ? ((CFG.objective_notes || {}).navigation || "") : ((CFG.prompt_notes || {})[loop] || "");
   pn.hidden = !pn.textContent;
+  // the skills switch only means something for the navigation loop
+  $("skillsrow").hidden = $("skillsnote").hidden = !CFG.skills || loop !== "navigation";
   const blocked = CFG.public && loop === "discovery";
   $("start").disabled = !!STATIC || blocked;
   $("start").textContent = blocked ? "Discovery: see rerun_kit/README.md" : "Start run";
@@ -645,7 +653,9 @@ function handle(ev) {
       $("final").classList.remove("muted");
       $("carry").hidden = !lastFinal;
       $("cost").textContent = ev.total_cost_usd != null ? `$${(+ev.total_cost_usd).toFixed(3)}, ${ev.num_turns} turns, ${(ev.duration_ms / 60000).toFixed(1)}\u00a0min` : "";
-      addEvent("end", "end", "fill", ev.subtype, ev.t, ev.result || "", null,
+      // an error the model API reported ends with subtype "success"; a turn cap with "error_max_turns"
+      addEvent("end", "end", "fill", ev.subtype === "error_max_turns" ? "turn cap reached"
+               : (ev.is_error && (!ev.subtype || ev.subtype === "success") ? "error" : ev.subtype), ev.t, ev.result || "", null,
                `${ev.num_turns} turns, ${ev.total_cost_usd != null ? "$" + (+ev.total_cost_usd).toFixed(3) : "cost unknown"}`);
       break;
     case "error": addEvent("result error", "error", "rust", "", ev.t, ev.message); break;
